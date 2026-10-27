@@ -1,0 +1,11 @@
+import api from './config'
+export const getEmbarques = () => api.get('/Embarques')
+export const getEmbarque = (id) => api.get(`/Embarques/${id}`)
+export const getEmbarquesPorNumero = (numero) => api.get(`/Embarques/por-numero/${encodeURIComponent(numero)}`)
+export const crearEmbarque = (datos) => api.post('/Embarques', datos)
+export const actualizarEmbarque = (id, datos) => api.put(`/Embarques/${id}`, datos)
+export const cambiarEstadoEmbarque = (id, datos) => api.put(`/Embarques/${id}/estado`, datos)
+export const marcarDocumentoEmbarque = (id, datos) => api.put(`/Embarques/${id}/documento`, datos)
+export const guardarSolicitud = (id, datos) => api.put(`/Embarques/${id}/solicitud`, datos)
+export const guardarRt = (id, datos) => api.put(`/Embarques/${id}/rt`, datos)
+export const eliminarEmbarque = (id, idUsuario) => api.delete(`/Embarques/${id}?idUsuario=${idUsuario}`)

@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+/* ============================================================
+   GRANJAMAR — sistema de diseño (moderno, minimalista, fluido)
+   ============================================================ */
+@theme {
+  --color-marca: #1268b3;        /* títulos azul fuerte */
+  --color-marca-oscuro: #0d4f88;
+  --color-teal: #0693a4;         /* botón hamburguesa, sidebar, guardar */
+  --color-teal-oscuro: #05707e;
+  --color-linea: #16a6b6;        /* líneas horizontales de tablas (heredado) */
+  --color-pill: #dff1f7;         /* pastillas "Detalles" / "Historial" */
+  --color-pill-hover: #c9e7f0;
+  --color-agregar: #16a34a;      /* icono + verde */
+  --color-cancelar: #f4796b;     /* botón cancelar / rojo */
+  --color-cancelar-hover: #e85f50;
+  --color-nota: #fdf4d6;         /* nota adhesiva amarilla (admin) */
+  --color-campo-amarillo: #fdf6e0; /* inputs destacados en ventas */
+  --color-panel-cyan: #eaf8f5;   /* panel modal de ventas */
+  --color-panel-login: #eef8fa;  /* tarjeta de login */
+  --color-entrar: #8fdf9a;       /* botón "Entrar" verde claro */
+  --color-pendiente-bg: #fde2e1; /* celda estado "Pendiente" */
+
+  /* Neutros / superficie */
+  --color-fondo: #f6f8f9;
+  --color-superficie: #ffffff;
+  --color-borde: #e6eaed;
+  --color-borde-suave: #eef1f3;
+  --color-texto: #1f2937;
+  --color-texto-suave: #6b7280;
+}
+
+body {
+  background-color: var(--color-fondo);
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in { animation: fade-in 0.25s cubic-bezier(.4,0,.2,1); }
+
+@keyframes fondo-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fondo-in { animation: fondo-in 0.18s ease-out; }
+
+@keyframes escala-in {
+  from { opacity: 0; transform: scale(0.96) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-escala-in { animation: escala-in 0.2s cubic-bezier(.4,0,.2,1); }
+
+@layer components {
+  /* Título de página: azul fuerte, grande y bold como el mockup */
+  .gm-titulo {
+    @apply text-marca font-extrabold tracking-tight leading-none text-center;
+    font-size: clamp(2.5rem, 5vw, 3.75rem);
+  }
+  .gm-subtitulo {
+    @apply text-marca font-bold text-center;
+    font-size: clamp(1.25rem, 2.6vw, 1.9rem);
+  }
+
+  /* Botón hamburguesa (círculo teal, barras negras) */
+  .gm-hamburguesa {
+    @apply fixed top-4 left-4 z-30 w-14 h-14 rounded-full flex items-center justify-center
+           transition-all duration-200 ease-out hover:scale-105 hover:shadow-xl active:scale-95;
+    background-color: var(--color-teal);
+    box-shadow: 0 8px 20px -6px rgb(6 147 164 / 0.45);
+  }
+
+  /* Pastilla de acción "Agregar / Transacción / Producto" con + verde */
+  .gm-agregar {
+    @apply inline-flex items-center gap-2 rounded-full pl-4 pr-1.5 py-1.5 text-sm font-medium
+           text-gray-700 transition-all duration-200 ease-out
+           hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-none
+           disabled:opacity-50 disabled:pointer-events-none;
+    background-color: var(--color-pill);
+  }
+
+  /* Pastilla enlace tipo "Detalles" / "Historial" */
+  .gm-pill {
+    @apply inline-flex items-center justify-center rounded-full px-4 py-1.5 text-sm font-medium
+           text-gray-800 transition-all duration-200 ease-out
+           hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-none
+           disabled:opacity-50 disabled:pointer-events-none;
+    background-color: var(--color-pill);
+  }
+
+  /* Tabla estilo mockup, aligerada: tarjeta blanca con divisores finos */
+  .gm-tabla {
+    @apply w-full bg-white rounded-2xl overflow-hidden;
+    border-collapse: separate;
+    border-spacing: 0;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 8px 24px -8px rgb(15 23 42 / 0.08);
+  }
+  .gm-tabla thead th {
+    @apply py-3 px-4 text-left font-bold text-gray-900 text-sm md:text-base;
+    border-bottom: 2px solid var(--color-borde);
+  }
+  .gm-tabla tbody td {
+    @apply py-3.5 px-4 text-gray-800 align-middle transition-colors duration-150;
+    border-bottom: 1px solid var(--color-borde-suave);
+  }
+  .gm-tabla tbody tr:last-child td { border-bottom: none; }
+  .gm-tabla tbody tr { transition: background-color 150ms ease-out; }
+  .gm-tabla tbody tr:hover td { background-color: #f7fbfc; }
+
+  /* Variante con cuadrícula completa (sub-tablas de Movimientos / Requisición) */
+  .gm-tabla-grid { @apply w-full border-collapse overflow-hidden rounded-xl; }
+  .gm-tabla-grid th, .gm-tabla-grid td {
+    border: 1px solid var(--color-borde);
+    @apply py-2.5 px-3 text-center transition-colors duration-150;
+  }
+  .gm-tabla-grid th { @apply font-bold text-gray-900 bg-gray-50; }
+  .gm-tabla-grid tbody tr:hover td { background-color: #f7fbfc; }
+
+  /* Botones inferiores Guardar / Cancelar */
+  .gm-btn-guardar {
+    @apply rounded-full px-8 py-2.5 font-bold text-white transition-all duration-200 ease-out
+           hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 active:shadow-none
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none;
+    background-color: var(--color-teal);
+  }
+  .gm-btn-cancelar {
+    @apply rounded-full px-8 py-2.5 font-bold text-white transition-all duration-200 ease-out
+           hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 active:shadow-none;
+    background-color: var(--color-cancelar);
+  }
+
+  /* Campo de formulario / búsqueda */
+  .gm-input {
+    @apply w-full rounded-xl border px-4 py-2 outline-none transition-all duration-200 ease-out
+           focus:border-teal focus:ring-4;
+    border-color: var(--color-borde);
+    --tw-ring-color: rgb(6 147 164 / 0.12);
+  }
+  .gm-input-amarillo {
+    @apply w-full rounded-xl px-4 py-2 outline-none border transition-all duration-200 ease-out
+           focus:border-teal focus:ring-4;
+    background-color: var(--color-campo-amarillo);
+    border-color: transparent;
+    --tw-ring-color: rgb(6 147 164 / 0.12);
+  }
+  .gm-error { @apply text-cancelar text-xs mt-1; }
+
+  /* Nota adhesiva amarilla */
+  .gm-nota {
+    @apply text-sm text-gray-700 rounded-xl px-4 py-3 max-w-xs;
+    background-color: var(--color-nota);
+    box-shadow: 0 2px 8px -2px rgb(0 0 0 / 0.06);
+  }
+}

@@ -1,0 +1,39 @@
+# ── .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.log
+
+# ── Configuración con secretos (clave JWT, conexión): se copia de appsettings.Example.json y NO se sube
+Empresa.Intranet.API/appsettings.json
+Empresa.Intranet.API/appsettings.*.local.json
+
+# ── Archivos que suben los usuarios (pedimentos, facturas…): son información, no código
+Empresa.Intranet.API/Archivos/
+
+# ── Datos / respaldos de la base de datos: solo se versiona su ESTRUCTURA (las migraciones)
+*.bak
+*.mdf
+*.ldf
+*.bacpac
+*.sql
+!Empresa.Intranet.Infrastructure/Migrations/**/*.sql
+
+# ── Frontend
+node_modules/
+dist/
+dist-ssr/
+*.local
+.env
+.env.*
+!.env.example
+
+# ── Herramientas / editor
+.claude/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
