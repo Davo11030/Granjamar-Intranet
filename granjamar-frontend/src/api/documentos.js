@@ -37,6 +37,12 @@ export const abrirArchivoDocumento = async (id) => {
   }
 }
 
+// El archivo de un documento como bytes (para anexarlo a otro PDF): { datos: ArrayBuffer, tipo }.
+export const getArchivoDocumento = async (id) => {
+  const r = await api.get(`/Documentos/${id}/archivo`, { responseType: 'arraybuffer' })
+  return { datos: r.data, tipo: r.headers['content-type'] }
+}
+
 export const TIPOS_ARCHIVO_DOCUMENTO = '.pdf,.jpg,.jpeg,.png,.xml'
 export const MAX_ARCHIVO_DOCUMENTO_MB = 15
 export const validarArchivoDocumento = (archivo) => {

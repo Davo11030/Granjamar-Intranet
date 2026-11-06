@@ -29,7 +29,26 @@ const MODULOS = {
   cajas_tractocamion: 'Caja de tractocamión',
   marcas_tractocamion: 'Marca de tractocamión',
   ubicacion_producto: 'Inventario (ubicación)',
+  produccion_inventario: 'Producción (tabla general)',
+  solicitudes_produccion: 'Solicitud de producción',
+  pedidos_consignacion: 'Pedido de consignación',
+  documentos: 'Documento',
+  configuracion_documento: 'Configuración de documentos',
 }
+
+// Los módulos cuyos registros MUEVEN producto (entran, salen o cambian de lugar/cantidad); el resto es uso del sistema
+// (usuarios, catálogos, permisos, documentos…).
+const TABLAS_PRODUCTO = new Set([
+  'compras',
+  'embarque',
+  'embarques',
+  'venta',
+  'ventas',
+  'producciones',
+  'produccion_inventario',
+  'ubicacion_producto',
+  'existencias',
+])
 const nombreModulo = (t) => MODULOS[t?.toLowerCase()] || (t ? t[0].toUpperCase() + t.slice(1) : '—')
 
 const BADGE = {
@@ -38,6 +57,9 @@ const BADGE = {
   ELIMINAR: 'bg-red-100 text-red-700',
 }
 const badge = (a) => BADGE[a?.toUpperCase()] || 'bg-gray-100 text-gray-600'
+
+// "2027-03-01T00:00:00" → "01/03/2027" sin pasar por Date (la zona horaria movería el día).
+const soloFecha = (v) => String(v).slice(0, 10).split('-').reverse().join('/')
 
 const parse = (s) => {
   if (!s) return null
@@ -72,6 +94,7 @@ const muestra = (v) => {
     )
   }
   if (typeof v === 'object') return JSON.stringify(v)
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return soloFecha(v)
   return String(v)
 }
 
@@ -81,6 +104,8 @@ export default function Movimientos() {
   const [error, setError] = useState('')
   const [filtros, setFiltros] = useState({ tabla: '', accion: '', usuario: '', desde: '', hasta: '' })
   const [seleccion, setSeleccion] = useState(null)
+  // Solo los movimientos de producto (entradas, embarques, ventas, producción, inventario), sin el uso del sistema.
+  const [soloProducto, setSoloProducto] = useState(false)
 
   const cargar = (f = filtros) => {
     setCargando(true)
@@ -104,17 +129,21 @@ export default function Movimientos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const modulos = useMemo(() => [...new Set(datos.map((d) => d.tabla).filter(Boolean))].sort(), [datos])
+  const datosVista = useMemo(
+    () => (soloProducto ? datos.filter((d) => TABLAS_PRODUCTO.has(String(d.tabla || '').toLowerCase())) : datos),
+    [datos, soloProducto],
+  )
+  const modulos = useMemo(() => [...new Set(datosVista.map((d) => d.tabla).filter(Boolean))].sort(), [datosVista])
   const usuarios = useMemo(
-    () => [...new Set(datos.map((d) => d.usuario).filter(Boolean))].sort(),
-    [datos],
+    () => [...new Set(datosVista.map((d) => d.usuario).filter(Boolean))].sort(),
+    [datosVista],
   )
 
   // Un renglón por registro (p. ej. "Venta #3"), no uno por cada actualización — el detalle
   // completo de actualizaciones se ve con el botón Historial.
   const registros = useMemo(() => {
     const grupos = new Map()
-    for (const ev of datos) {
+    for (const ev of datosVista) {
       // Los registros con número propio (embarques) se agrupan por ese número: un embarque a varios destinos son
       // varios registros con el mismo número y se ve como uno solo.
       const clave = `${ev.tabla}#${ev.referencia ?? ev.idRegistro}`
@@ -128,9 +157,9 @@ export default function Movimientos() {
         return { ...g, ultimo: ordenados[0], total: ordenados.length }
       })
       .sort((a, b) => new Date(b.ultimo.fecha) - new Date(a.ultimo.fecha))
-  }, [datos])
+  }, [datosVista])
 
-  const { datosPaginados, pagina, setPagina, total, porPagina } = usePaginacion(registros, 25)
+  const { datosPaginados, pagina, setPagina, total, porPagina } = usePaginacion(registros, 20)
 
   const limpiar = () => {
     const vacio = { tabla: '', accion: '', usuario: '', desde: '', hasta: '' }
@@ -151,6 +180,30 @@ export default function Movimientos() {
             <strong>Historial</strong> para ver todas sus actualizaciones. Disponible únicamente
             para el administrador.
           </NotaAdmin>
+        </div>
+
+        <div className="mb-3 flex items-center gap-3">
+          <button
+            type="button"
+            aria-pressed={soloProducto}
+            title="Ver solo lo que mueve producto (entradas, embarques, ventas, producción e inventario), sin el uso del sistema"
+            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+              soloProducto ? 'bg-teal text-white' : 'border-2 border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}
+            onClick={() => {
+              setSoloProducto((v) => !v)
+              // El módulo elegido antes ya no tiene por qué existir en la nueva vista: se recarga sin él.
+              if (filtros.tabla) {
+                const nuevos = { ...filtros, tabla: '' }
+                setFiltros(nuevos)
+                cargar(nuevos)
+              }
+              setPagina(1)
+            }}
+          >
+            Solo movimientos de producto
+          </button>
+          {soloProducto && <span className="text-xs text-gray-400">Entradas, embarques, ventas, producción e inventario</span>}
         </div>
 
         {/* Filtros */}
@@ -264,6 +317,11 @@ export default function Movimientos() {
                       </td>
                       <td className="font-semibold">
                         {nombreModulo(r.tabla)} #{r.referencia ?? r.idRegistro}
+                        {(r.ultimo.productos || r.eventos.find((e) => e.productos)?.productos) && (
+                          <span className="block text-xs font-normal text-gray-500">
+                            {r.ultimo.productos || r.eventos.find((e) => e.productos)?.productos}
+                          </span>
+                        )}
                       </td>
                       <td>
                         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badge(r.ultimo.accion)}`}>
@@ -305,17 +363,19 @@ export default function Movimientos() {
 function HistorialRegistro({ registro, onCerrar }) {
   const [eventos, setEventos] = useState([])
   const [cargando, setCargando] = useState(false)
+  const { datosPaginados, pagina, setPagina, total, porPagina } = usePaginacion(eventos, 20)
 
   useEffect(() => {
     if (!registro) return
     setCargando(true)
+    setPagina(1)
     // Un registro puede abarcar varios ids (embarque con varios destinos): se juntan todos sus eventos.
     const ids = registro.ids ? [...registro.ids] : [registro.idRegistro]
     Promise.all(ids.map((id) => getMovimientos(new URLSearchParams({ tabla: registro.tabla, registro: String(id) }).toString())))
       .then((rs) => setEventos(rs.flatMap((r) => r.data).sort((a, b) => new Date(a.fecha) - new Date(b.fecha))))
       .catch(() => setEventos([]))
       .finally(() => setCargando(false))
-  }, [registro])
+  }, [registro, setPagina])
 
   if (!registro) return null
 
@@ -323,7 +383,7 @@ function HistorialRegistro({ registro, onCerrar }) {
     <Modal
       abierto
       onCerrar={onCerrar}
-      ancho="max-w-2xl"
+      ancho="max-w-4xl"
       titulo={`${nombreModulo(registro.tabla)} #${registro.referencia ?? registro.idRegistro} — Historial`}
     >
       {cargando ? (
@@ -331,11 +391,14 @@ function HistorialRegistro({ registro, onCerrar }) {
       ) : eventos.length === 0 ? (
         <p className="text-sm text-gray-400">No se encontraron actualizaciones.</p>
       ) : (
-        <div className="max-h-[60vh] space-y-5 overflow-y-auto pr-1">
-          {eventos.map((ev, i) => (
-            <EventoHistorial key={ev.id} evento={ev} esUltimo={i === eventos.length - 1} />
-          ))}
-        </div>
+        <>
+          <div className="max-h-[60vh] space-y-5 overflow-y-auto pr-1">
+            {datosPaginados.map((ev) => (
+              <EventoHistorial key={ev.id} evento={ev} esUltimo={ev === eventos[eventos.length - 1]} />
+            ))}
+          </div>
+          <Paginacion total={total} porPagina={porPagina} paginaActual={pagina} onCambiar={setPagina} />
+        </>
       )}
 
       <div className="mt-6 flex justify-end">
@@ -347,11 +410,149 @@ function HistorialRegistro({ registro, onCerrar }) {
   )
 }
 
+// ── Detalle de PRODUCTO de un movimiento ────────────────────────────────────────────────────────────────
+// Las líneas de producto de la auditoría (Detalles: producto, lote, bodega, kilos…) se muestran como una tabla; al
+// MODIFICAR se marca qué renglones son nuevos, cuáles se quitaron y qué cambió en los que siguen.
+const COLUMNAS_PRODUCTO = [
+  ['Producto', 'Código'],
+  ['Descripcion', 'Descripción'],
+  ['Etapa', 'Etapa'],
+  ['Lote', 'Lote'],
+  ['Origen', 'Origen'],
+  ['Bodega', 'Bodega'],
+  ['Documento', 'Documento'],
+  ['Costo', 'Costo'],
+  ['Caducidad', 'Caducidad'],
+  ['Entrada', 'Entrada (kg)'],
+  ['Salida (desbloqueo)', 'Desbloqueo (kg)'],
+  ['Kilos', 'Kilos'],
+  ['Usado', 'Usó (kg)'],
+  ['Rendimiento', 'Rendimiento (kg)'],
+  ['Porcentaje', '%'],
+]
+const NUMERICAS = new Set(['Costo', 'Entrada', 'Salida (desbloqueo)', 'Kilos', 'Usado', 'Rendimiento', 'Porcentaje'])
+const esLinea = (x) => x && typeof x === 'object' && !Array.isArray(x) && ('Producto' in x || 'Descripcion' in x)
+const lineasDe = (obj) => {
+  if (!obj) return null
+  const k = Object.keys(obj).find((x) => x.toLowerCase() === 'detalles')
+  return k && Array.isArray(obj[k]) && obj[k].every(esLinea) ? { clave: k, lineas: obj[k] } : null
+}
+const celda = (col, v) => {
+  if (v === null || v === undefined || v === '') return '—'
+  if (col === 'Caducidad' && typeof v === 'string') return soloFecha(v)
+  if (typeof v === 'number') return col === 'Costo' ? v.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }) : n3(v)
+  return String(v)
+}
+// Misma línea en "antes" y "después": producto + lote + etapa + origen + bodega (y su número de aparición).
+const claveLinea = (l, vistas) => {
+  const base = [l.Producto, l.Lote, l.Etapa, l.Origen, l.Bodega].map((x) => x ?? '').join('|')
+  const n = (vistas[base] = (vistas[base] || 0) + 1)
+  return base + '#' + n
+}
+
+function TablaProductos({ antes, despues, accion }) {
+  const modificar = accion === 'MODIFICAR' && antes && despues
+  const actuales = despues ?? antes ?? []
+  let filas
+  if (modificar) {
+    const va = {}
+    const mapaAntes = new Map(antes.map((l) => [claveLinea(l, va), l]))
+    const vd = {}
+    filas = actuales.map((l) => {
+      const k = claveLinea(l, vd)
+      const previa = mapaAntes.get(k)
+      mapaAntes.delete(k)
+      const cambio = previa && JSON.stringify(previa) !== JSON.stringify(l)
+      return { linea: l, previa, estado: !previa ? 'nuevo' : cambio ? 'cambio' : 'igual' }
+    })
+    for (const l of mapaAntes.values()) filas.push({ linea: l, previa: null, estado: 'quitado' })
+  } else {
+    filas = actuales.map((l) => ({ linea: l, previa: null, estado: 'igual' }))
+  }
+  const presentes = new Set(filas.flatMap((f) => [...Object.keys(f.linea), ...(f.previa ? Object.keys(f.previa) : [])]))
+  const columnas = COLUMNAS_PRODUCTO.filter(([k]) => presentes.has(k))
+  const total = (k) => filas.filter((f) => f.estado !== 'quitado').reduce((t, f) => t + Number(f.linea[k] || 0), 0)
+  const colKg = ['Kilos', 'Entrada'].find((k) => presentes.has(k))
+  const ESTILO = { nuevo: 'bg-green-50', cambio: 'bg-amber-50', quitado: 'bg-red-50 text-gray-400 line-through', igual: '' }
+  const ETIQUETA = { nuevo: 'Nuevo', cambio: 'Cambió', quitado: 'Quitado', igual: '' }
+
+  return (
+    <div className="mb-3 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-200 text-left">
+            {modificar && <th className="py-1.5 pr-3" />}
+            {columnas.map(([k, titulo]) => (
+              <th key={k} className={`py-1.5 pr-3 ${NUMERICAS.has(k) ? 'text-right' : ''}`}>
+                {titulo}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((f, i) => (
+            <tr key={i} className={ESTILO[f.estado]}>
+              {modificar && (
+                <td className="py-1.5 pr-3 align-top text-xs font-semibold no-underline">
+                  {f.estado !== 'igual' && (
+                    <span
+                      className={`rounded-full px-2 py-0.5 ${
+                        f.estado === 'nuevo' ? 'bg-green-100 text-green-700' : f.estado === 'quitado' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                      }`}
+                    >
+                      {ETIQUETA[f.estado]}
+                    </span>
+                  )}
+                </td>
+              )}
+              {columnas.map(([k]) => {
+                const nuevo = f.linea[k]
+                const previo = f.previa?.[k]
+                const distinto = f.estado === 'cambio' && JSON.stringify(previo) !== JSON.stringify(nuevo)
+                return (
+                  <td key={k} className={`py-1.5 pr-3 align-top ${NUMERICAS.has(k) ? 'text-right' : ''} ${k === 'Producto' ? 'font-semibold' : ''}`}>
+                    {distinto ? (
+                      <>
+                        <span className="text-gray-400 line-through">{celda(k, previo)}</span>
+                        <span className="font-semibold text-amber-700"> → {celda(k, nuevo)}</span>
+                      </>
+                    ) : (
+                      celda(k, nuevo)
+                    )}
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+        {colKg && filas.length > 1 && (
+          <tfoot>
+            <tr className="border-t border-gray-200 font-semibold">
+              {modificar && <td />}
+              {columnas.map(([k], i) => (
+                <td key={k} className={`py-1.5 pr-3 ${NUMERICAS.has(k) ? 'text-right' : ''}`}>
+                  {i === 0 ? 'Total' : k === colKg ? n3(total(k)) : ''}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        )}
+      </table>
+    </div>
+  )
+}
+
+const etiquetaCampo = (k) => (k ? k[0].toUpperCase() + k.slice(1) : k)
+
 function EventoHistorial({ evento, esUltimo }) {
   const antes = parse(evento.datosAnteriores)
   const despues = parse(evento.datosNuevos)
   const accion = evento.accion?.toUpperCase()
-  const claves = [...new Set([...(antes ? Object.keys(antes) : []), ...(despues ? Object.keys(despues) : [])])]
+  const detAntes = lineasDe(antes)
+  const detDespues = lineasDe(despues)
+  const claveDetalles = (detDespues || detAntes)?.clave
+  // Los renglones de producto van en su propia tabla; aquí quedan los demás datos del registro.
+  const claves = [...new Set([...(antes ? Object.keys(antes) : []), ...(despues ? Object.keys(despues) : [])])].filter((k) => k !== claveDetalles)
 
   return (
     <div className={`rounded-xl border p-4 ${esUltimo ? 'border-teal/40 bg-teal/5' : 'border-gray-200'}`}>
@@ -364,8 +565,15 @@ function EventoHistorial({ evento, esUltimo }) {
         <span>{formatearFechaHora(evento.fecha)}</span>
       </div>
 
+      {(detAntes || detDespues) && (
+        <>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-marca">Productos</p>
+          <TablaProductos antes={detAntes?.lineas} despues={detDespues?.lineas} accion={accion} />
+        </>
+      )}
+
       {claves.length === 0 ? (
-        <p className="text-sm text-gray-400">Sin detalle guardado para este evento.</p>
+        !(detAntes || detDespues) && <p className="text-sm text-gray-400">Sin detalle guardado para este evento.</p>
       ) : accion === 'MODIFICAR' ? (
         <table className="w-full text-sm">
           <thead>
@@ -382,7 +590,7 @@ function EventoHistorial({ evento, esUltimo }) {
               const cambio = JSON.stringify(a) !== JSON.stringify(d)
               return (
                 <tr key={k} className={cambio ? 'bg-amber-50' : ''}>
-                  <td className="py-1.5 pr-4 align-top font-medium text-gray-700">{k}</td>
+                  <td className="py-1.5 pr-4 align-top font-medium text-gray-700">{etiquetaCampo(k)}</td>
                   <td className="py-1.5 pr-4 align-top text-gray-500">{muestra(a)}</td>
                   <td className={`py-1.5 align-top ${cambio ? 'font-semibold text-amber-700' : 'text-gray-500'}`}>
                     {muestra(d)}
@@ -403,7 +611,7 @@ function EventoHistorial({ evento, esUltimo }) {
           <tbody>
             {claves.map((k) => (
               <tr key={k}>
-                <td className="py-1.5 pr-4 align-top font-medium text-gray-700">{k}</td>
+                <td className="py-1.5 pr-4 align-top font-medium text-gray-700">{etiquetaCampo(k)}</td>
                 <td className="py-1.5 align-top text-gray-600">{muestra((despues ?? antes)?.[k])}</td>
               </tr>
             ))}

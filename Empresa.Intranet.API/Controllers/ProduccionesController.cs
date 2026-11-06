@@ -126,6 +126,30 @@ public class ProduccionesController : ControllerBase
     private static string MensajeDiaOcupado(DateTime dia) =>
         $"Ya existe un reporte de producción del {dia:dd/MM/yyyy}: solo puede haber uno por día. Ábrelo y edítalo.";
 
+    // Los renglones de un reporte tal como se guardan en la auditoría (producto, qué se hizo y cuánto).
+    private async Task<List<object>> DetallesAuditoriaAsync(IEnumerable<ProduccionReporteFila> filas)
+    {
+        var lista = filas.OrderBy(f => f.Orden).ToList();
+        var codigos = lista.Select(f => f.CodigoProducto).Distinct().ToList();
+        var nombres = await _context.Productos.AsNoTracking().Where(p => codigos.Contains(p.Codigo))
+            .Select(p => new { p.Codigo, Nombre = p.Especie.Nombre }).ToDictionaryAsync(p => p.Codigo, p => p.Nombre);
+        return lista.Select(f =>
+        {
+            var d = new Dictionary<string, object?>
+            {
+                ["Producto"] = f.CodigoProducto,
+                ["Descripcion"] = nombres.GetValueOrDefault(f.CodigoProducto, f.CodigoProducto),
+                ["Etapa"] = f.Etapa switch { ProduccionReporteFila.Entrada => "Entrada a producción", ProduccionReporteFila.MP => "M.P. en procesos", _ => "Salida de producción" },
+                ["Kilos"] = f.Kilos
+            };
+            if (f.KilosUsados > 0) d["Usado"] = f.KilosUsados;
+            if (f.Rendimiento != null) d["Rendimiento"] = f.Rendimiento;
+            if (f.Porcentaje != null) d["Porcentaje"] = f.Porcentaje;
+            if (f.Etapa == ProduccionReporteFila.Salida) d["Lote"] = f.LoteOriginal ? "Original" : f.Lote;
+            return (object)d;
+        }).ToList();
+    }
+
     private static string? NormalizarEtapa(string? e) => e?.Trim().ToLowerInvariant() switch
     {
         "entrada" => ProduccionReporteFila.Entrada,
@@ -171,10 +195,12 @@ public class ProduccionesController : ControllerBase
         await using var tx = await _context.Database.BeginTransactionAsync();   // sin commit: se descarta
 
         // ── Deshacer el reporte anterior (si se edita).
+        object? snapshotAnterior = null;
         if (editar)
         {
             var viejas = await _context.ProduccionReporte.Where(f => f.Activo && f.Fecha.Date == diaEditado!.Value).ToListAsync();
             if (viejas.Count == 0) return NotFound();
+            snapshotAnterior = new { fecha = diaEditado, renglones = viejas.Count, detalles = await DetallesAuditoriaAsync(viejas) };
             foreach (var s in viejas.Where(v => v.Etapa == ProduccionReporteFila.Salida))
             {
                 var error = await _prod.RevisarDeshacerSalidaAsync(s);
@@ -345,12 +371,13 @@ public class ProduccionesController : ControllerBase
         if (errorLinea != null) return BadRequest(new { mensaje = errorLinea });
         await tx.CommitAsync();
 
-        await _auditoria.RegistrarAsync("producciones", dia.ToString("yyyy-MM-dd"), editar ? "MODIFICAR" : "CREAR", null, new
+        await _auditoria.RegistrarAsync("producciones", dia.ToString("yyyy-MM-dd"), editar ? "MODIFICAR" : "CREAR", snapshotAnterior, new
         {
             fecha = dia,
             renglones = derivadas.Count,
             entrada = derivadas.Where(x => x.F.Etapa == ProduccionReporteFila.Entrada).Sum(x => x.F.Kilos),
-            salida = derivadas.Where(x => x.F.Etapa == ProduccionReporteFila.Salida).Sum(x => x.F.Kilos)
+            salida = derivadas.Where(x => x.F.Etapa == ProduccionReporteFila.Salida).Sum(x => x.F.Kilos),
+            detalles = await DetallesAuditoriaAsync(derivadas.Select(x => x.F))
         }, usuario);
 
         return Ok(new { fecha = dia.ToString("yyyy-MM-dd") });

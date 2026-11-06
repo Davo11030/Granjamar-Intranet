@@ -31,24 +31,8 @@ public class VentasController : ControllerBase
 
     // Convierte los DetalleMovimiento (que solo guardan IdExistencia) en algo legible para
     // la auditoría: código de producto, descripción y kilos — nada de ids sueltos.
-    private async Task<List<object>> ResolverDetalles(IEnumerable<DetalleMovimiento> detalles)
-    {
-        var resultado = new List<object>();
-        foreach (var d in detalles)
-        {
-            var existencia = d.IdExistencia != null ? await _context.Existencias.FindAsync(d.IdExistencia) : null;
-            var producto = existencia != null
-                ? await _context.Productos.Include(p => p.Especie).FirstOrDefaultAsync(p => p.Codigo == existencia.CodigoProducto)
-                : null;
-            resultado.Add(new
-            {
-                Producto = existencia?.CodigoProducto,
-                Descripcion = producto?.Especie?.Nombre ?? existencia?.CodigoProducto,
-                d.Kilos
-            });
-        }
-        return resultado;
-    }
+    private Task<List<object>> ResolverDetalles(IEnumerable<DetalleMovimiento> detalles) =>
+        Empresa.Intranet.API.Servicios.AuditoriaDetalles.LineasAsync(_context, detalles);
 
     // Snapshot legible de una venta para la auditoría: resuelve cliente/forma de pago/lugar de
     // entrega/estado de recolección a su nombre en vez de dejar el id suelto.

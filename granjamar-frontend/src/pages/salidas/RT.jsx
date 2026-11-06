@@ -466,9 +466,11 @@ export default function RT() {
                   {bloque.filas.map((f, fi) => {
                     const c = calculo.filas[bi][fi]
                     const eliminado = f.estado === 'eliminado'
-                    const disponibles = (pedimentosDisponibles[f.codigo] || []).filter(
-                      (d) => !f.documentos.some((x) => x.idDocumento === d.idDocumento),
-                    )
+                    // La lista para agregar va del documento más reciente al más viejo (por su fecha; si empatan, el
+                    // que se registró después primero).
+                    const disponibles = (pedimentosDisponibles[f.codigo] || [])
+                      .filter((d) => !f.documentos.some((x) => x.idDocumento === d.idDocumento))
+                      .sort((a, b) => new Date(b.fechaDocumento || 0) - new Date(a.fechaDocumento || 0) || b.idDocumento - a.idDocumento)
                     return (
                       <tr key={f.codigo} className={eliminado ? 'bg-red-50' : f.estado === 'nuevo' ? 'bg-yellow-50' : ''}>
                         <td className="text-sm font-semibold">
@@ -583,6 +585,7 @@ export default function RT() {
                                   const restan = calculo.poolDe(f.codigo, d.idDocumento)
                                   return (
                                     <option key={d.idDocumento} value={d.idDocumento}>
+                                      {d.fechaDocumento ? `${new Date(d.fechaDocumento).toLocaleDateString('es-MX')} · ` : ''}
                                       {d.tipoDocumento || 'Pedimento'} — {d.numeroDocumento} (total {n3(d.kilosOriginales)} kg ·{' '}
                                       {restan > EPS ? `restan ${n3(restan)} kg` : 'sin kilos restantes'})
                                     </option>

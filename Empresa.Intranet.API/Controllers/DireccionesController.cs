@@ -33,9 +33,14 @@ public class DireccionesController : ControllerBase
             item.DireccionTexto,
             item.Estado,
             item.Municipio,
+            item.CodigoPostal,
+            item.Segmento,
             Empresa = empresa?.Nombre
         };
     }
+
+    private static string? LimpiarSegmento(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+    private static string? LimpiarCp(string? cp) => string.IsNullOrWhiteSpace(cp) ? null : cp.Trim();
 
     [HttpGet]
     public async Task<IActionResult> GetTodos() =>
@@ -48,6 +53,8 @@ public class DireccionesController : ControllerBase
                 Direccion = d.DireccionTexto,
                 Estado = d.Estado,
                 Municipio = d.Municipio,
+                CodigoPostal = d.CodigoPostal,
+                Segmento = d.Segmento,
                 IdEmpresa = d.IdEmpresa,
                 Empresa = d.Empresa != null ? d.Empresa.Nombre : null
             })
@@ -66,6 +73,8 @@ public class DireccionesController : ControllerBase
             Direccion = item.DireccionTexto,
             Estado = item.Estado,
             Municipio = item.Municipio,
+            CodigoPostal = item.CodigoPostal,
+            Segmento = item.Segmento,
             IdEmpresa = item.IdEmpresa,
             Empresa = item.Empresa?.Nombre
         });
@@ -82,6 +91,8 @@ public class DireccionesController : ControllerBase
             DireccionTexto = dto.Direccion,
             Estado = dto.Estado,
             Municipio = dto.Municipio,
+            CodigoPostal = LimpiarCp(dto.CodigoPostal),
+            Segmento = LimpiarSegmento(dto.Segmento),
             IdEmpresa = dto.IdEmpresa
         };
         _context.Direcciones.Add(item);
@@ -91,7 +102,7 @@ public class DireccionesController : ControllerBase
             await Snapshot(item), dto.IdUsuario);
 
         return CreatedAtAction(nameof(GetPorId), new { id = item.Id },
-            new DireccionDto { Id = item.Id, Direccion = item.DireccionTexto, Estado = item.Estado, Municipio = item.Municipio, IdEmpresa = item.IdEmpresa });
+            new DireccionDto { Id = item.Id, Direccion = item.DireccionTexto, Estado = item.Estado, Municipio = item.Municipio, CodigoPostal = item.CodigoPostal, Segmento = item.Segmento, IdEmpresa = item.IdEmpresa });
     }
 
     [HttpPut("{id}")]
@@ -109,6 +120,8 @@ public class DireccionesController : ControllerBase
         item.DireccionTexto = dto.Direccion;
         item.Estado = dto.Estado;
         item.Municipio = dto.Municipio;
+        item.CodigoPostal = LimpiarCp(dto.CodigoPostal);
+        item.Segmento = LimpiarSegmento(dto.Segmento);
         item.IdEmpresa = dto.IdEmpresa;
         await _context.SaveChangesAsync();
 

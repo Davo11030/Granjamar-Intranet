@@ -54,7 +54,7 @@ public class ProduccionInventarioController : ControllerBase
             .Include(l => l.Producto).ThenInclude(p => p.Especie)
             .Where(l => l.Activo && l.Fecha.Date == dia).OrderBy(l => l.Orden).ThenBy(l => l.Id).ToListAsync();
         var ids = lineas.Select(l => l.Id).ToList();
-        var solicitudes = await _context.SolicitudesProduccion.AsNoTracking().Include(s => s.Pedido)
+        var solicitudes = await _context.SolicitudesProduccion.AsNoTracking().Include(s => s.Pedido).ThenInclude(p => p!.Ordenes)
             .Where(s => s.Activo && s.IdLinea != null && ids.Contains(s.IdLinea!.Value)).ToListAsync();
         var idsEx = lineas.Where(l => l.IdExistencia.HasValue).Select(l => l.IdExistencia!.Value)
             .Concat(grupos.Where(g => g.IdExistencia.HasValue).Select(g => g.IdExistencia!.Value)).Distinct().ToList();
@@ -88,7 +88,7 @@ public class ProduccionInventarioController : ControllerBase
                 IdPedido = s?.IdPedido,
                 NumeroPedido = s?.Pedido?.Numero,
                 // Solo un pedido ya liberado o facturado (comprado) bloquea el origen: los kilos siempre se pueden modificar.
-                Bloqueada = s?.Pedido != null && (s.Pedido.Estado == PedidosConsignacionService.Liberado || s.Pedido.IdDocumentoFactura != null)
+                Bloqueada = s?.Pedido != null && (s.Pedido.Estado != PedidosConsignacionService.Pendiente || s.Pedido.Ordenes.Count > 0)
             });
         }
 
@@ -148,6 +148,32 @@ public class ProduccionInventarioController : ControllerBase
         finally { ProduccionService.Candado.Release(); }
     }
 
+    // Los renglones de la tabla general tal como se guardan en la auditoría (producto, origen, entradas y desbloqueo).
+    private async Task<List<object>> DetallesAuditoriaAsync(IEnumerable<ProduccionInventarioLinea> lineas)
+    {
+        var lista = lineas.OrderBy(l => l.Orden).ToList();
+        var codigos = lista.Select(l => l.CodigoProducto).Distinct().ToList();
+        var nombres = await _context.Productos.AsNoTracking().Where(p => codigos.Contains(p.Codigo))
+            .Select(p => new { p.Codigo, Nombre = p.Especie.Nombre }).ToDictionaryAsync(p => p.Codigo, p => p.Nombre);
+        var resultado = new List<object>();
+        foreach (var l in lista)
+        {
+            var lote = l.IdExistencia.HasValue ? (await _context.Existencias.AsNoTracking().FirstOrDefaultAsync(e => e.Id == l.IdExistencia))?.Lote : null;
+            var d = new Dictionary<string, object?>
+            {
+                ["Producto"] = l.CodigoProducto,
+                ["Descripcion"] = nombres.GetValueOrDefault(l.CodigoProducto, l.CodigoProducto)
+            };
+            if (lote != null) d["Lote"] = lote;
+            var origen = await Empresa.Intranet.API.Servicios.AuditoriaDetalles.BodegaAsync(_context, l.IdDireccion);
+            if (origen != null) d["Origen"] = origen;
+            d["Entrada"] = l.Entrada;
+            d["Salida (desbloqueo)"] = l.Salida;
+            resultado.Add(d);
+        }
+        return resultado;
+    }
+
     private async Task<string?> AplicarAsync(DateTime dia, GuardarInventarioDto dto, uint usuario)
     {
         var nuevas = dto.Lineas.Where(l => l.Entrada > 0 || l.Salida > 0).ToList();
@@ -155,8 +181,9 @@ public class ProduccionInventarioController : ControllerBase
 
         // ── Lo que ya había ese día.
         var viejas = await _context.ProduccionInventario.Where(l => l.Activo && l.Fecha.Date == dia).ToListAsync();
+        var detallesAntes = await DetallesAuditoriaAsync(viejas);
         var idsViejas = viejas.Select(l => l.Id).ToList();
-        var solicitudesViejas = await _context.SolicitudesProduccion.Include(s => s.Pedido)
+        var solicitudesViejas = await _context.SolicitudesProduccion.Include(s => s.Pedido).ThenInclude(p => p!.Ordenes)
             .Where(s => s.Activo && s.IdLinea != null && idsViejas.Contains(s.IdLinea!.Value)).ToListAsync();
 
         // Las entradas de consignación que ya están en un pedido: el pedido es contable y no frena el trabajo, así que
@@ -169,7 +196,7 @@ public class ProduccionInventarioController : ControllerBase
         {
             var sol = solicitudesViejas.FirstOrDefault(s => s.IdLinea == v.Id && s.IdPedido != null);
             if (sol == null) continue;
-            var cerrado = sol.Pedido!.Estado == PedidosConsignacionService.Liberado || sol.Pedido.IdDocumentoFactura != null;
+            var cerrado = sol.Pedido!.Estado != PedidosConsignacionService.Pendiente || sol.Pedido.Ordenes.Count > 0;
             var cliente = nuevas.FirstOrDefault(l => l.Id == v.Id);
             var mismo = cliente != null && cliente.Codigo == v.CodigoProducto && cliente.IdExistencia == v.IdExistencia
                 && cliente.IdDireccion == v.IdDireccion && cliente.Entrada > 0;
@@ -313,13 +340,17 @@ public class ProduccionInventarioController : ControllerBase
         await _context.SaveChangesAsync();
         foreach (var idPedido in pedidosARefrescar) await _pedidos.RefrescarPedidoDeSolicitudesAsync(idPedido);
 
-        await _auditoria.RegistrarAsync("produccion_inventario", dia.ToString("yyyy-MM-dd"), "MODIFICAR", null, new
-        {
-            fecha = dia,
-            renglones = nuevas.Count,
-            entradas = nuevas.Sum(l => l.Entrada),
-            desbloqueado = nuevas.Sum(l => l.Salida)
-        }, usuario);
+        var guardadas = await _context.ProduccionInventario.AsNoTracking().Where(l => l.Activo && l.Fecha.Date == dia).ToListAsync();
+        await _auditoria.RegistrarAsync("produccion_inventario", dia.ToString("yyyy-MM-dd"), "MODIFICAR",
+            new { fecha = dia, renglones = detallesAntes.Count, detalles = detallesAntes },
+            new
+            {
+                fecha = dia,
+                renglones = nuevas.Count,
+                entradas = nuevas.Sum(l => l.Entrada),
+                desbloqueado = nuevas.Sum(l => l.Salida),
+                detalles = await DetallesAuditoriaAsync(guardadas)
+            }, usuario);
         return null;
     }
 }

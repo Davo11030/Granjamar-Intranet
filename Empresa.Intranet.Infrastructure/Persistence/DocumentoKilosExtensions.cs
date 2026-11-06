@@ -7,17 +7,18 @@ namespace Empresa.Intranet.Infrastructure.Persistence;
 // enviada descuenta de él los kilos que declara usar.
 public static class DocumentoKilosExtensions
 {
-    // Kilos que respalda la FACTURA de los pedidos de consignación para ese código: lo que el pedido
-    // pidió de ese producto. Una vez cargada, la factura es de Granjamar y se queda aunque el embarque,
+    // Kilos que respalda la FACTURA de los pedidos de consignación para ese código: lo que su orden de embarque
+    // liberó de ese producto (cada orden lleva su factura). Una vez cargada, la factura es de Granjamar y se queda aunque el embarque,
     // venta o producción de origen cambie o se elimine. Una misma factura puede cubrir varios pedidos y varios productos; el
     // conteo es por (documento, producto), igual que el de los pedimentos.
     public static async Task<Dictionary<uint, decimal>> KilosPedidoPorDocumento(this AppDbContext ctx, string codigoProducto)
     {
         return await (
-            from d in ctx.PedidosConsignacionDetalle
+            from d in ctx.PedidosConsignacionOrdenesDetalle
             where d.CodigoProducto == codigoProducto
-                && d.Pedido.IdDocumentoFactura != null
-            group d by d.Pedido.IdDocumentoFactura!.Value into g
+                && d.Orden.IdDocumentoFactura != null
+                && d.Orden.Pedido.Activo
+            group d by d.Orden.IdDocumentoFactura!.Value into g
             select new { Documento = g.Key, Kilos = g.Sum(x => x.Kilos) })
             .ToDictionaryAsync(x => x.Documento, x => x.Kilos);
     }

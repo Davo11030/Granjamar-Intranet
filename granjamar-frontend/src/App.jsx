@@ -35,6 +35,7 @@ import Usuarios from './pages/admin/Usuarios'
 import Visitantes from './pages/otros/Visitantes'
 import Clientes from './pages/clientes/Clientes'
 import Empresas from './pages/admin/Empresas'
+import Documentos from './pages/admin/Documentos'
 import NotFound from './pages/NotFound'
 import InventarioResguardo from './pages/inventario/Resguardo'
 import InventarioConsignacion from './pages/inventario/Consignacion'
@@ -86,6 +87,7 @@ export default function App() {
           <Route path="/admin/visitantes" element={<RutaAdmin><Visitantes /></RutaAdmin>} />
           <Route path="/clientes" element={<ProtectedRoute permiso={['clientes','ver']}><Clientes /></ProtectedRoute>} />
           <Route path="/admin/empresas" element={<RutaAdmin><Empresas /></RutaAdmin>} />
+          <Route path="/admin/documentos" element={<RutaAdmin><Documentos /></RutaAdmin>} />
           <Route path="/inventario/resguardo/:IdEmpresa" element={<ProtectedRoute permiso={['inventario','ver']}><InventarioResguardo /></ProtectedRoute>} />
           <Route path="/inventario/consignacion/:IdEmpresa" element={<ProtectedRoute permiso={['inventario','ver']}><InventarioConsignacion /></ProtectedRoute>}/>
           <Route path="/inventario/consignacion/:IdEmpresa/solicitudes" element={<ProtectedRoute permiso={['inventario','ver']}><SolicitudesProduccion /></ProtectedRoute>}/>

@@ -6,6 +6,8 @@ public class DireccionDto
     public string Direccion { get; set; } = null!;
     public string Estado { get; set; } = null!;
     public string Municipio { get; set; } = null!;
+    public string? CodigoPostal { get; set; }
+    public string? Segmento { get; set; }
     public uint? IdEmpresa { get; set; }
     public string? Empresa { get; set; }
 }
@@ -16,5 +18,7 @@ public class CrearDireccionDto
     public string Direccion { get; set; } = null!;
     public string Estado { get; set; } = null!;
     public string Municipio { get; set; } = null!;
+    public string? CodigoPostal { get; set; }
+    public string? Segmento { get; set; }
     public uint? IdEmpresa { get; set; }
 }

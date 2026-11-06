@@ -19,6 +19,7 @@ builder.Services.AddScoped<TokenService>();
 // AuditoriaService
 builder.Services.AddScoped<AuditoriaService>();
 builder.Services.AddScoped<Empresa.Intranet.API.Servicios.PedidosConsignacionService>();
+builder.Services.AddScoped<Empresa.Intranet.API.Servicios.ConfiguracionDocumentosService>();
 builder.Services.AddScoped<Empresa.Intranet.API.Servicios.ProduccionService>();
 // JWT
 var jwtKey = builder.Configuration["Jwt:Key"]!;

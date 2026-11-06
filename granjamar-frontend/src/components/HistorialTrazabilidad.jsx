@@ -4,6 +4,8 @@ import Layout from './Layout'
 import PageHeader from './PageHeader'
 import Cargando from './Cargando'
 import Modal from './Modal'
+import Paginacion from './Paginacion'
+import usePaginacion from '../hooks/usePaginacion'
 import { getTrazabilidad } from '../api/inventario'
 
 const num = (n) =>
@@ -38,6 +40,7 @@ export default function HistorialTrazabilidad() {
   }, [id])
 
   const movs = datos?.movimientos || []
+  const { datosPaginados, pagina, setPagina, total, porPagina } = usePaginacion(movs, 20)
 
   return (
     <Layout>
@@ -75,7 +78,7 @@ export default function HistorialTrazabilidad() {
                 </tr>
               </thead>
               <tbody>
-                {movs.map((mov) => (
+                {datosPaginados.map((mov) => (
                   <tr key={mov.id}>
                     <td>
                       <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-sm whitespace-nowrap">
@@ -102,6 +105,8 @@ export default function HistorialTrazabilidad() {
             </table>
           </div>
         )}
+
+        <Paginacion total={total} porPagina={porPagina} paginaActual={pagina} onCambiar={setPagina} />
 
         <div className="mt-8">
           <button className="gm-btn-guardar" onClick={() => navigate(-1)}>

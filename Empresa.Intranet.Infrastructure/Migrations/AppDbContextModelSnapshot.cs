@@ -224,6 +224,34 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                     b.ToTable("compras", (string)null);
                 });
 
+            modelBuilder.Entity("Empresa.Intranet.Domain.Entities.ConfiguracionDocumento", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Clave")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("Documento")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("Valor")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Documento", "Clave")
+                        .IsUnique();
+
+                    b.ToTable("configuracion_documento", (string)null);
+                });
+
             modelBuilder.Entity("Empresa.Intranet.Domain.Entities.Departamento", b =>
                 {
                     b.Property<long>("Id")
@@ -357,6 +385,9 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                     b.Property<bool>("Activo")
                         .HasColumnType("bit");
 
+                    b.Property<string>("CodigoPostal")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("DireccionTexto")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)")
@@ -371,6 +402,9 @@ namespace Empresa.Intranet.Infrastructure.Migrations
 
                     b.Property<string>("Municipio")
                         .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Segmento")
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
@@ -467,6 +501,9 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                     b.Property<long?>("IdDireccion")
                         .HasColumnType("bigint");
 
+                    b.Property<long?>("IdDireccionOrigen")
+                        .HasColumnType("bigint");
+
                     b.Property<long>("IdHistorial")
                         .HasColumnType("bigint");
 
@@ -491,6 +528,12 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                     b.Property<string>("RutaSolicitud")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<string>("SelloSeguridad1")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SelloSeguridad2")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("SolicitudCompleta")
                         .HasColumnType("bit");
 
@@ -501,6 +544,8 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                     b.HasIndex("IdDetalleTransporte");
 
                     b.HasIndex("IdDireccion");
+
+                    b.HasIndex("IdDireccionOrigen");
 
                     b.HasIndex("IdHistorial");
 
@@ -725,27 +770,18 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                     b.Property<DateTime>("Fecha")
                         .HasColumnType("datetime2");
 
-                    b.Property<DateTime?>("FechaLiberacion")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long?>("IdDocumentoFactura")
-                        .HasColumnType("bigint");
-
-                    b.Property<long?>("IdDocumentoOrden")
-                        .HasColumnType("bigint");
-
                     b.Property<long>("IdEmpresa")
                         .HasColumnType("bigint");
 
                     b.Property<long>("IdOrigen")
                         .HasColumnType("bigint");
 
+                    b.Property<long?>("IdPedidoDividido")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Numero")
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
-
-                    b.Property<string>("OrdenEmbarque")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("TipoDestino")
                         .IsRequired()
@@ -757,9 +793,7 @@ namespace Empresa.Intranet.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IdDocumentoFactura");
-
-                    b.HasIndex("IdDocumentoOrden");
+                    b.HasIndex("IdPedidoDividido");
 
                     b.HasIndex("IdEmpresa", "Numero")
                         .IsUnique();
@@ -795,6 +829,69 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                     b.HasIndex("IdPedido");
 
                     b.ToTable("pedido_consignacion_detalle", (string)null);
+                });
+
+            modelBuilder.Entity("Empresa.Intranet.Domain.Entities.PedidoConsignacionOrden", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("Fecha")
+                        .HasColumnType("datetime2");
+
+                    b.Property<long?>("IdDocumentoFactura")
+                        .HasColumnType("bigint");
+
+                    b.Property<long?>("IdDocumentoOrden")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("IdPedido")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Numero")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IdDocumentoFactura");
+
+                    b.HasIndex("IdDocumentoOrden");
+
+                    b.HasIndex("IdPedido");
+
+                    b.ToTable("pedido_consignacion_orden", (string)null);
+                });
+
+            modelBuilder.Entity("Empresa.Intranet.Domain.Entities.PedidoConsignacionOrdenDetalle", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("CodigoProducto")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<long>("IdOrden")
+                        .HasColumnType("bigint");
+
+                    b.Property<decimal>("Kilos")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("decimal(18,3)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CodigoProducto");
+
+                    b.HasIndex("IdOrden");
+
+                    b.ToTable("pedido_consignacion_orden_detalle", (string)null);
                 });
 
             modelBuilder.Entity("Empresa.Intranet.Domain.Entities.Permiso", b =>
@@ -1672,6 +1769,11 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                         .WithMany("Embarques")
                         .HasForeignKey("IdDireccion");
 
+                    b.HasOne("Empresa.Intranet.Domain.Entities.Direccion", "DireccionOrigen")
+                        .WithMany()
+                        .HasForeignKey("IdDireccionOrigen")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Empresa.Intranet.Domain.Entities.HistorialMovimiento", "HistorialMovimiento")
                         .WithMany("Embarques")
                         .HasForeignKey("IdHistorial")
@@ -1683,6 +1785,8 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                     b.Navigation("DetalleTransporte");
 
                     b.Navigation("Direccion");
+
+                    b.Navigation("DireccionOrigen");
 
                     b.Navigation("HistorialMovimiento");
                 });
@@ -1729,27 +1833,20 @@ namespace Empresa.Intranet.Infrastructure.Migrations
 
             modelBuilder.Entity("Empresa.Intranet.Domain.Entities.PedidoConsignacion", b =>
                 {
-                    b.HasOne("Empresa.Intranet.Domain.Entities.Documento", "DocumentoFactura")
-                        .WithMany()
-                        .HasForeignKey("IdDocumentoFactura")
-                        .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Empresa.Intranet.Domain.Entities.Documento", "DocumentoOrden")
-                        .WithMany()
-                        .HasForeignKey("IdDocumentoOrden")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("Empresa.Intranet.Domain.Entities.Empresa", "Empresa")
                         .WithMany()
                         .HasForeignKey("IdEmpresa")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.Navigation("DocumentoFactura");
-
-                    b.Navigation("DocumentoOrden");
+                    b.HasOne("Empresa.Intranet.Domain.Entities.PedidoConsignacion", "PedidoDividido")
+                        .WithMany()
+                        .HasForeignKey("IdPedidoDividido")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Empresa");
+
+                    b.Navigation("PedidoDividido");
                 });
 
             modelBuilder.Entity("Empresa.Intranet.Domain.Entities.PedidoConsignacionDetalle", b =>
@@ -1767,6 +1864,50 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Pedido");
+
+                    b.Navigation("Producto");
+                });
+
+            modelBuilder.Entity("Empresa.Intranet.Domain.Entities.PedidoConsignacionOrden", b =>
+                {
+                    b.HasOne("Empresa.Intranet.Domain.Entities.Documento", "DocumentoFactura")
+                        .WithMany()
+                        .HasForeignKey("IdDocumentoFactura")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Empresa.Intranet.Domain.Entities.Documento", "DocumentoOrden")
+                        .WithMany()
+                        .HasForeignKey("IdDocumentoOrden")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Empresa.Intranet.Domain.Entities.PedidoConsignacion", "Pedido")
+                        .WithMany("Ordenes")
+                        .HasForeignKey("IdPedido")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("DocumentoFactura");
+
+                    b.Navigation("DocumentoOrden");
+
+                    b.Navigation("Pedido");
+                });
+
+            modelBuilder.Entity("Empresa.Intranet.Domain.Entities.PedidoConsignacionOrdenDetalle", b =>
+                {
+                    b.HasOne("Empresa.Intranet.Domain.Entities.Producto", "Producto")
+                        .WithMany()
+                        .HasForeignKey("CodigoProducto")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Empresa.Intranet.Domain.Entities.PedidoConsignacionOrden", "Orden")
+                        .WithMany("Detalles")
+                        .HasForeignKey("IdOrden")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Orden");
 
                     b.Navigation("Producto");
                 });
@@ -2179,6 +2320,13 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                 });
 
             modelBuilder.Entity("Empresa.Intranet.Domain.Entities.PedidoConsignacion", b =>
+                {
+                    b.Navigation("Detalles");
+
+                    b.Navigation("Ordenes");
+                });
+
+            modelBuilder.Entity("Empresa.Intranet.Domain.Entities.PedidoConsignacionOrden", b =>
                 {
                     b.Navigation("Detalles");
                 });

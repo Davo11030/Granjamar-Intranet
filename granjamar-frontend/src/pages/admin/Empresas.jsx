@@ -12,10 +12,11 @@ import {
   actualizarEmpresa,
   getDirecciones,
   crearDireccion,
+  actualizarDireccion,
 } from '../../api/destinos'
 
 const TIPOS = ['INTERNA', 'Resguardo', 'Consignacion', 'Cliente', 'Proveedor']
-const DIR_VACIA = { estado: '', municipio: '', direccion: '' }
+const DIR_VACIA = { estado: '', municipio: '', direccion: '', codigoPostal: '', segmento: '' }
 const FORM = { nombre: '', rfc: '', tipo: 'INTERNA', urlLogo: '', direcciones: [{ ...DIR_VACIA }] }
 
 export default function Empresas() {
@@ -29,10 +30,6 @@ export default function Empresas() {
   const [editando, setEditando] = useState(null)
   const [guardando, setGuardando] = useState(false)
   const [form, setForm] = useState({ ...FORM })
-
-  // formulario rápido "+ Dirección" dentro de una fila expandida
-  const [dirRapida, setDirRapida] = useState({ ...DIR_VACIA })
-  const [guardandoDir, setGuardandoDir] = useState(false)
 
   const cargar = () => {
     Promise.all([getEmpresas(), getDirecciones()])
@@ -57,9 +54,13 @@ export default function Empresas() {
 
   const abrir = (empresa = null) => {
     setEditando(empresa)
+    // Al editar, las direcciones que ya tiene entran al formulario (con su id) para poder modificarlas; las nuevas se agregan aparte.
+    const existentes = empresa
+      ? (dirPorEmpresa[String(empresa.id)] || []).map((d) => ({ id: d.id, direccion: d.direccion || '', municipio: d.municipio || '', estado: d.estado || '', codigoPostal: d.codigoPostal || '', segmento: d.segmento || '' }))
+      : []
     setForm(
       empresa
-        ? { nombre: empresa.nombre, rfc: empresa.rfc || '', tipo: empresa.tipo || 'INTERNA', urlLogo: empresa.urlLogo || '', direcciones: [{ ...DIR_VACIA }] }
+        ? { nombre: empresa.nombre, rfc: empresa.rfc || '', tipo: empresa.tipo || 'INTERNA', urlLogo: empresa.urlLogo || '', direcciones: existentes }
         : { ...FORM, direcciones: [{ ...DIR_VACIA }] },
     )
     setModal(true)
@@ -70,8 +71,10 @@ export default function Empresas() {
 
   const guardar = async () => {
     if (!form.nombre.trim()) return toast.advertencia('El nombre de la empresa es obligatorio')
-    const dirsValidas = form.direcciones.filter((d) => d.direccion.trim())
+    // Las existentes no pueden quedar vacías; las nuevas en blanco se ignoran.
+    const dirsValidas = form.direcciones.filter((d) => d.id || d.direccion.trim())
     for (const d of dirsValidas) {
+      if (!d.direccion.trim()) return toast.advertencia('Una dirección existente no puede quedar vacía')
       if (!d.estado.trim() || !d.municipio.trim())
         return toast.advertencia('Cada dirección necesita estado y municipio')
     }
@@ -92,14 +95,23 @@ export default function Empresas() {
         const { data } = await crearEmpresa(payload)
         idEmpresa = data.id
       }
+      const originales = new Map((editando ? dirPorEmpresa[String(editando.id)] || [] : []).map((d) => [d.id, d]))
       for (const d of dirsValidas) {
-        await crearDireccion({
+        const datos = {
           direccion: d.direccion.trim(),
           estado: d.estado.trim(),
           municipio: d.municipio.trim(),
+          codigoPostal: (d.codigoPostal || '').trim() || null,
+          segmento: (d.segmento || '').trim() || null,
           idEmpresa: Number(idEmpresa),
           idUsuario: usuario?.id,
-        })
+        }
+        if (d.id) {
+          // Solo se actualizan las que cambiaron.
+          const o = originales.get(d.id)
+          if (o && o.direccion === datos.direccion && o.estado === datos.estado && o.municipio === datos.municipio && (o.codigoPostal || null) === datos.codigoPostal && (o.segmento || null) === datos.segmento) continue
+          await actualizarDireccion(d.id, datos)
+        } else await crearDireccion(datos)
       }
       toast.exito(editando ? 'Empresa actualizada' : 'Empresa registrada')
       setModal(false)
@@ -108,29 +120,6 @@ export default function Empresas() {
       toast.error(e.response?.data?.mensaje || 'No se pudo guardar la empresa')
     } finally {
       setGuardando(false)
-    }
-  }
-
-  const agregarDireccionRapida = async (idEmpresa) => {
-    if (!dirRapida.direccion.trim()) return toast.advertencia('Escribe la dirección')
-    if (!dirRapida.estado.trim() || !dirRapida.municipio.trim())
-      return toast.advertencia('Indica estado y municipio')
-    setGuardandoDir(true)
-    try {
-      await crearDireccion({
-        direccion: dirRapida.direccion.trim(),
-        estado: dirRapida.estado.trim(),
-        municipio: dirRapida.municipio.trim(),
-        idEmpresa: Number(idEmpresa),
-        idUsuario: usuario?.id,
-      })
-      toast.exito('Dirección agregada')
-      setDirRapida({ ...DIR_VACIA })
-      cargar()
-    } catch (e) {
-      toast.error(e.response?.data?.mensaje || 'No se pudo agregar la dirección')
-    } finally {
-      setGuardandoDir(false)
     }
   }
 
@@ -172,7 +161,6 @@ export default function Empresas() {
                             className="gm-pill"
                             onClick={() => {
                               setExpandida(abierta ? null : e.id)
-                              setDirRapida({ ...DIR_VACIA })
                             }}
                           >
                             {dirs.length} — {abierta ? 'ocultar' : 'ver'}
@@ -194,7 +182,7 @@ export default function Empresas() {
                               {dirs.length === 0 && (
                                 <p className="mb-3 text-sm text-gray-500">Aún no tiene direcciones registradas.</p>
                               )}
-                              <ul className="mb-4 space-y-1">
+                              <ul className="mb-3 space-y-1">
                                 {dirs.map((d) => (
                                   <li key={d.id} className="text-sm">
                                     <span className="font-medium">{d.direccion}</span>
@@ -205,33 +193,7 @@ export default function Empresas() {
                                   </li>
                                 ))}
                               </ul>
-                              <div className="flex flex-wrap items-end gap-2">
-                                <input
-                                  className="gm-input w-56 py-1.5"
-                                  placeholder="Dirección"
-                                  value={dirRapida.direccion}
-                                  onChange={(ev) => setDirRapida({ ...dirRapida, direccion: ev.target.value })}
-                                />
-                                <input
-                                  className="gm-input w-36 py-1.5"
-                                  placeholder="Municipio"
-                                  value={dirRapida.municipio}
-                                  onChange={(ev) => setDirRapida({ ...dirRapida, municipio: ev.target.value })}
-                                />
-                                <input
-                                  className="gm-input w-36 py-1.5"
-                                  placeholder="Estado"
-                                  value={dirRapida.estado}
-                                  onChange={(ev) => setDirRapida({ ...dirRapida, estado: ev.target.value })}
-                                />
-                                <button
-                                  className="gm-btn-guardar py-1.5"
-                                  disabled={guardandoDir}
-                                  onClick={() => agregarDireccionRapida(e.id)}
-                                >
-                                  + Dirección
-                                </button>
-                              </div>
+                              <p className="text-xs text-gray-400">Para agregar o modificar direcciones usa Editar.</p>
                             </div>
                           </td>
                         </tr>
@@ -280,13 +242,13 @@ export default function Empresas() {
         <div className="mt-6">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-semibold text-marca">
-              Direcciones {editando ? '(se agregan a las existentes)' : ''}
+              Direcciones
             </span>
             <button
               className="text-sm font-semibold text-teal"
               onClick={() => setForm((p) => ({ ...p, direcciones: [...p.direcciones, { ...DIR_VACIA }] }))}
             >
-              + Agregar otra
+              + Agregar dirección
             </button>
           </div>
           <div className="space-y-2">
@@ -310,7 +272,22 @@ export default function Empresas() {
                   value={d.estado}
                   onChange={(e) => setDir(i, { estado: e.target.value })}
                 />
-                {form.direcciones.length > 1 && (
+                <input
+                  className="gm-input w-24 py-1.5"
+                  placeholder="C.P."
+                  inputMode="numeric"
+                  maxLength={5}
+                  value={d.codigoPostal || ''}
+                  onChange={(e) => setDir(i, { codigoPostal: e.target.value.replace(/[^0-9]/g, '') })}
+                />
+                <input
+                  className="gm-input w-28 py-1.5"
+                  placeholder="# Segmento"
+                  title="# Segmento o Cliente (se imprime en la Requisición)"
+                  value={d.segmento || ''}
+                  onChange={(e) => setDir(i, { segmento: e.target.value })}
+                />
+                {!d.id && (form.direcciones.length > 1 || editando) && (
                   <button
                     className="text-cancelar"
                     aria-label="Quitar dirección"
@@ -325,7 +302,7 @@ export default function Empresas() {
             ))}
           </div>
           <p className="mt-2 text-xs text-gray-400">
-            Deja una dirección vacía si no quieres agregar ninguna ahora.
+            {editando ? 'Modifica las direcciones que ya tiene o agrega nuevas.' : 'Deja una dirección vacía si no quieres agregar ninguna ahora.'}
           </p>
         </div>
 

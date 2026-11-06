@@ -9,7 +9,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { getDirecciones, crearDireccion, getEmpresas } from '../../api/destinos'
 
-const FORM = { direccion: '', estado: '', municipio: '', idEmpresa: '' }
+const FORM = { direccion: '', estado: '', municipio: '', codigoPostal: '', segmento: '', idEmpresa: '' }
 
 export default function Destinos() {
   const { usuario, puede } = useAuth()
@@ -47,6 +47,8 @@ export default function Destinos() {
         direccion: form.direccion.trim(),
         estado: form.estado.trim(),
         municipio: form.municipio.trim(),
+        codigoPostal: form.codigoPostal.trim() || null,
+        segmento: form.segmento.trim() || null,
         idEmpresa: form.idEmpresa ? Number(form.idEmpresa) : null,
         idUsuario: usuario?.id,
       })
@@ -91,6 +93,8 @@ export default function Destinos() {
                   <th className="italic">Empresa</th>
                   <th>Estado</th>
                   <th>Municipio</th>
+                  <th>C.P.</th>
+                  <th># Segmento</th>
                   <th>Direccion</th>
                   <th>RFC</th>
                 </tr>
@@ -101,13 +105,15 @@ export default function Destinos() {
                     <td>{d.empresa || '—'}</td>
                     <td>{d.estado || '—'}</td>
                     <td>{d.municipio || '—'}</td>
+                    <td>{d.codigoPostal || '—'}</td>
+                    <td className="font-mono text-sm">{d.segmento || '—'}</td>
                     <td>{d.direccion}</td>
                     <td className="font-mono text-sm">{rfcPorEmpresa[d.empresa] || '—'}</td>
                   </tr>
                 ))}
                 {filtrados.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="!py-12 text-center text-gray-400">
+                    <td colSpan={6} className="!py-12 text-center text-gray-400">
                       Sin destinos registrados
                     </td>
                   </tr>
@@ -145,6 +151,20 @@ export default function Destinos() {
               <input className="gm-input mt-1" value={form.municipio} onChange={(e) => setForm({ ...form, municipio: e.target.value })} />
             </label>
           </div>
+          <label className="block">
+            <span className="text-sm font-semibold text-teal">Código postal</span>
+            <input
+              className="gm-input mt-1"
+              inputMode="numeric"
+              maxLength={5}
+              value={form.codigoPostal}
+              onChange={(e) => setForm({ ...form, codigoPostal: e.target.value.replace(/[^0-9]/g, '') })}
+            />
+          </label>
+          <label className="block">
+            <span className="text-sm font-semibold text-teal"># Segmento o Cliente</span>
+            <input className="gm-input mt-1 font-mono" value={form.segmento} onChange={(e) => setForm({ ...form, segmento: e.target.value })} placeholder="Número que va en la Requisición" />
+          </label>
         </div>
 
         <div className="mt-8 flex justify-between">

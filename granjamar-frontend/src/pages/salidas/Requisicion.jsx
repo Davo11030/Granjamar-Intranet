@@ -58,7 +58,9 @@ export default function Requisicion() {
   const toast = useToast()
 
   const [numero, setNumero] = useState('')
-  const [origen, setOrigen] = useState('Ensenada')
+  // Origen / remitente del embarque (junto al No. de embarque): una dirección de la empresa interna. No es el lugar de
+  // donde sale cada producto (eso va en cada renglón).
+  const [idOrigen, setIdOrigen] = useState('')
   const [grupos, setGrupos] = useState([GRUPO()]) // un grupo por destino: { idDestino, filas }
   const [destinos, setDestinos] = useState([])
   const [clientes, setClientes] = useState([])
@@ -94,6 +96,20 @@ export default function Requisicion() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
+  // El origen viene preseleccionado en Ensenada (se puede cambiar). En una requisición ya guardada se respeta el que
+  // tenga; solo si no tiene ninguno (las anteriores a que se guardara) se predispone también.
+  const origenPredispuesto = useRef(false)
+  useEffect(() => {
+    if (origenPredispuesto.current || destinos.length === 0 || empresas.length === 0) return
+    if (esEdicion && !embarqueData) return
+    origenPredispuesto.current = true
+    if (embarqueData?.idDireccionOrigen) return
+    const quita = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    const internas = destinos.filter((x) => esEmpresaInterna(empresas, x.idEmpresa))
+    const ensenada = internas.find((x) => quita(x.municipio).includes('ensenada')) || internas.find((x) => quita(x.direccion).includes('ensenada'))
+    if (ensenada) setIdOrigen(String(ensenada.id))
+  }, [destinos, empresas, embarqueData, esEdicion])
+
   // Predispone el siguiente número de embarque disponible en requisiciones nuevas — solo cuenta
   // los del año en curso, así que cada año nuevo el conteo reinicia en 1. El usuario puede
   // cambiarlo, es solo una sugerencia para que el campo no se vea vacío.
@@ -122,6 +138,7 @@ export default function Requisicion() {
     reconstruido.current = true
 
     setNumero(embarqueData.numero || '')
+    if (embarqueData.idDireccionOrigen) setIdOrigen(String(embarqueData.idDireccionOrigen))
     setIdChofer(embarqueData.idChofer ? String(embarqueData.idChofer) : '')
     setIdTracto(embarqueData.idTractocamion ? String(embarqueData.idTractocamion) : '')
     setIdCaja(embarqueData.idCaja ? String(embarqueData.idCaja) : '')
@@ -309,6 +326,7 @@ export default function Requisicion() {
           const payload = {
             idUsuario: usuario?.id,
             numero: numero || null,
+            idDireccionOrigen: idOrigen ? Number(idOrigen) : null,
             ...destinoPayload(g.idDestino),
             transporte,
             detalles: detallesDeGrupo(g),
@@ -333,6 +351,7 @@ export default function Requisicion() {
           const res = await crearEmbarque({
             idUsuario: usuario?.id,
             numero: numero || null,
+            idDireccionOrigen: idOrigen ? Number(idOrigen) : null,
             ...destinoPayload(g.idDestino),
             transporte,
             detalles: detallesDeGrupo(g),
@@ -377,13 +396,18 @@ export default function Requisicion() {
           <label className="flex items-center gap-3 text-teal font-semibold">
             Origen:
             <select
-              value={origen}
-              onChange={(e) => setOrigen(e.target.value)}
+              value={idOrigen}
+              onChange={(e) => setIdOrigen(e.target.value)}
               className="rounded-lg border-2 border-gray-300 px-3 py-1.5 font-bold text-black"
             >
-              <option>Ensenada</option>
-              <option>La Paz</option>
-              <option>Guaymas</option>
+              <option value="">Selecciona origen</option>
+              {destinos
+                .filter((x) => esEmpresaInterna(empresas, x.idEmpresa))
+                .map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.municipio ? `${x.municipio} — ${x.direccion}` : x.direccion}
+                  </option>
+                ))}
             </select>
           </label>
         </div>

@@ -36,6 +36,8 @@ public class AppDbContext : DbContext
     public DbSet<RtDetalleDocumento> RtDetalleDocumentos { get; set; }
     public DbSet<PedidoConsignacion> PedidosConsignacion { get; set; }
     public DbSet<PedidoConsignacionDetalle> PedidosConsignacionDetalle { get; set; }
+    public DbSet<PedidoConsignacionOrden> PedidosConsignacionOrdenes { get; set; }
+    public DbSet<PedidoConsignacionOrdenDetalle> PedidosConsignacionOrdenesDetalle { get; set; }
     public DbSet<SolicitudProduccion> SolicitudesProduccion { get; set; }
     public DbSet<ProduccionInventarioLinea> ProduccionInventario { get; set; }
     public DbSet<ProduccionReporteFila> ProduccionReporte { get; set; }
@@ -50,6 +52,7 @@ public class AppDbContext : DbContext
     public DbSet<Compras> Compras { get; set; }
     public DbSet<Visitante> Visitante { get; set; }
     public DbSet<Auditoria> Auditorias { get; set; }
+    public DbSet<ConfiguracionDocumento> ConfiguracionDocumentos { get; set; }
     public DbSet<Permiso> Permisos { get; set; }
 public DbSet<UsuarioPermiso> UsuariosPermiso { get; set; }
     public DbSet<SolicitudContrasena> SolicitudesContrasena { get; set; }
@@ -59,6 +62,8 @@ public DbSet<UsuarioPermiso> UsuariosPermiso { get; set; }
 
         // ── Nombres de tablas ──────────────────────────────────────────
         modelBuilder.Entity<ClavesSat>().ToTable("claves_sat");
+        modelBuilder.Entity<ConfiguracionDocumento>().ToTable("configuracion_documento");
+        modelBuilder.Entity<ConfiguracionDocumento>().HasIndex(c => new { c.Documento, c.Clave }).IsUnique();
         modelBuilder.Entity<Especie>().ToTable("especie");
         modelBuilder.Entity<Marca>().ToTable("marca");
         modelBuilder.Entity<Talla>().ToTable("talla");
@@ -83,12 +88,16 @@ public DbSet<UsuarioPermiso> UsuariosPermiso { get; set; }
         modelBuilder.Entity<CajaTractocamion>().ToTable("caja_tractocamion");
         modelBuilder.Entity<DetalleTransporte>().ToTable("detalle_transporte");
         modelBuilder.Entity<Embarque>().ToTable("embarque");
+        modelBuilder.Entity<Embarque>()
+            .HasOne(e => e.DireccionOrigen).WithMany().HasForeignKey(e => e.IdDireccionOrigen).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<SolicitudDetalle>().ToTable("solicitud_detalle");
         modelBuilder.Entity<SolicitudTarima>().ToTable("solicitud_tarima");
         modelBuilder.Entity<RtDetalle>().ToTable("rt_detalle");
         modelBuilder.Entity<RtDetalleDocumento>().ToTable("rt_detalle_documento");
         modelBuilder.Entity<PedidoConsignacion>().ToTable("pedido_consignacion");
         modelBuilder.Entity<PedidoConsignacionDetalle>().ToTable("pedido_consignacion_detalle");
+        modelBuilder.Entity<PedidoConsignacionOrden>().ToTable("pedido_consignacion_orden");
+        modelBuilder.Entity<PedidoConsignacionOrdenDetalle>().ToTable("pedido_consignacion_orden_detalle");
         modelBuilder.Entity<SolicitudProduccion>().ToTable("solicitud_produccion");
         modelBuilder.Entity<ProduccionInventarioLinea>().ToTable("produccion_inventario");
         modelBuilder.Entity<ProduccionReporteFila>().ToTable("produccion_reporte");
@@ -264,9 +273,19 @@ public DbSet<UsuarioPermiso> UsuariosPermiso { get; set; }
         modelBuilder.Entity<PedidoConsignacion>()
             .HasOne(p => p.Empresa).WithMany().HasForeignKey(p => p.IdEmpresa).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<PedidoConsignacion>()
-            .HasOne(p => p.DocumentoOrden).WithMany().HasForeignKey(p => p.IdDocumentoOrden).OnDelete(DeleteBehavior.Restrict);
-        modelBuilder.Entity<PedidoConsignacion>()
-            .HasOne(p => p.DocumentoFactura).WithMany().HasForeignKey(p => p.IdDocumentoFactura).OnDelete(DeleteBehavior.Restrict);
+            .HasOne(p => p.PedidoDividido).WithMany().HasForeignKey(p => p.IdPedidoDividido).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PedidoConsignacionOrden>()
+            .HasOne(o => o.Pedido).WithMany(p => p.Ordenes).HasForeignKey(o => o.IdPedido).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<PedidoConsignacionOrden>()
+            .HasOne(o => o.DocumentoOrden).WithMany().HasForeignKey(o => o.IdDocumentoOrden).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PedidoConsignacionOrden>()
+            .HasOne(o => o.DocumentoFactura).WithMany().HasForeignKey(o => o.IdDocumentoFactura).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PedidoConsignacionOrdenDetalle>()
+            .HasOne(d => d.Orden).WithMany(o => o.Detalles).HasForeignKey(d => d.IdOrden).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<PedidoConsignacionOrdenDetalle>()
+            .HasOne(d => d.Producto).WithMany().HasForeignKey(d => d.CodigoProducto).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PedidoConsignacionOrdenDetalle>()
+            .Property(d => d.Kilos).HasPrecision(18, 3);
         modelBuilder.Entity<PedidoConsignacion>()
             .HasIndex(p => new { p.IdEmpresa, p.Numero }).IsUnique();
         modelBuilder.Entity<PedidoConsignacion>()

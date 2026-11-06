@@ -288,7 +288,21 @@ public async Task<IActionResult> GetTodos(
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("ubicacion_producto", origen.Id.ToString(), "MODIFICAR", null,
-            new { Traspaso = "Conpaq → resguardo", dto.Kilos, Registro = historial.Id, Destino = destino.DireccionTexto },
+            new
+            {
+                Traspaso = "Conpaq → resguardo",
+                Detalles = new List<object>
+                {
+                    new
+                    {
+                        Producto = (await _context.Existencias.AsNoTracking().FirstOrDefaultAsync(e => e.Id == origen.IdExistencia))?.CodigoProducto,
+                        Lote = (await _context.Existencias.AsNoTracking().FirstOrDefaultAsync(e => e.Id == origen.IdExistencia))?.Lote,
+                        Bodega = await Empresa.Intranet.API.Servicios.AuditoriaDetalles.BodegaAsync(_context, destino.Id),
+                        Kilos = dto.Kilos
+                    }
+                },
+                Registro = historial.Id
+            },
             this.IdUsuarioActual());
 
         await tx.CommitAsync();
@@ -311,8 +325,10 @@ public async Task<IActionResult> GetTodos(
     [RequierePermiso("inventario","ver","existencias/ver","ventas/crear","ventas/editar","embarques/crear","embarques/editar","produccion/crear")]
     [HttpGet("resguardo/{idEmpresa}/historial/{codigoProducto}")]
     [HttpGet("empresa/{idEmpresa}/historial/{codigoProducto}")]
-    public async Task<IActionResult> GetHistorialResguardo(uint idEmpresa, string codigoProducto)
+    public async Task<IActionResult> GetHistorialResguardo(uint idEmpresa, string codigoProducto, [FromQuery] int pagina = 1, [FromQuery] int porPagina = 20)
     {
+        if (pagina < 1) pagina = 1;
+        porPagina = Math.Clamp(porPagina, 1, 200);
         var producto = await _context.Productos
             .Include(p => p.Especie).Include(p => p.Talla).Include(p => p.Marca).Include(p => p.PesoCaja)
             .FirstOrDefaultAsync(p => p.Codigo == codigoProducto);
@@ -467,9 +483,16 @@ public async Task<IActionResult> GetTodos(
             })
             .ToList();
 
+        // El saldo corrido se calcula con TODOS los movimientos; a la pantalla solo se manda la página pedida, del
+        // más reciente al más viejo (el saldo previo sin fecha queda al final).
+        var delaPagina = resultado.AsEnumerable().Reverse().Skip((pagina - 1) * porPagina).Take(porPagina).ToList();
+
         return Ok(new
         {
             Empresa = empresa.Nombre,
+            Total = resultado.Count,
+            Pagina = pagina,
+            PorPagina = porPagina,
             Producto = new
             {
                 producto.Codigo,
@@ -477,7 +500,7 @@ public async Task<IActionResult> GetTodos(
                 Marca = producto.Marca?.Nombre,
                 Talla = producto.Talla?.Descripcion
             },
-            Movimientos = resultado
+            Movimientos = delaPagina
         });
     }
 

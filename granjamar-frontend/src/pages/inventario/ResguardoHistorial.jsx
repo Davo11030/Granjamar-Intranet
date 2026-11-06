@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import PageHeader from '../../components/PageHeader'
 import Cargando from '../../components/Cargando'
+import Paginacion from '../../components/Paginacion'
 import { Flecha } from '../../components/HistorialTrazabilidad'
 import { getHistorialResguardo } from '../../api/inventario'
 const num = (n) =>  Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -15,18 +16,19 @@ export default function ResguardoHistorial() {
   const navigate = useNavigate()
   const [datos, setDatos] = useState(null)
   const [cargando, setCargando] = useState(true)
+  const [pagina, setPagina] = useState(1)
 
+  // Los movimientos llegan por páginas de 20 (el saldo corrido ya viene calculado con todos).
   useEffect(() => {
     setCargando(true)
-    getHistorialResguardo(IdEmpresa, codigo)
+    getHistorialResguardo(IdEmpresa, codigo, pagina)
       .then((res) => setDatos(res.data))
       .catch((e) => console.error('Error cargando historial de resguardo:', e))
       .finally(() => setCargando(false))
-  }, [IdEmpresa, codigo])
+  }, [IdEmpresa, codigo, pagina])
 
-  // El servidor los entrega del más viejo al más nuevo (el Inv. final se acumula en ese orden); aquí se
-  // muestran del más reciente al más viejo. El saldo previo sin fecha queda al final.
-  const movs = [...(datos?.movimientos || [])].reverse()
+  // El servidor los entrega del más reciente al más viejo; el saldo previo sin fecha queda al final.
+  const movs = datos?.movimientos || []
   const p = datos?.producto
 
   return (
@@ -108,6 +110,8 @@ export default function ResguardoHistorial() {
             </table>
           </div>
         )}
+
+        {datos && <Paginacion total={datos.total} porPagina={datos.porPagina} paginaActual={pagina} onCambiar={setPagina} />}
 
         <div className="mt-8">
           <button className="gm-btn-guardar" onClick={() => navigate(-1)}>

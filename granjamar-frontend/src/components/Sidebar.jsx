@@ -34,6 +34,7 @@ const adminItems = [
   { label: 'Movimientos', path: '/admin/movimientos' },
   { label: 'Usuarios', path: '/admin/usuarios' },
   { label: 'Empresas', path: '/admin/empresas' },
+  { label: 'Documentos', path: '/admin/documentos' },
   { label: 'Visitantes', path: '/admin/visitantes' },
 ]
 

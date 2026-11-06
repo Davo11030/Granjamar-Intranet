@@ -94,7 +94,7 @@ public class DocumentosController : ControllerBase
     }
 
     // GET api/documentos/5/archivo — descarga/visualiza el archivo (solo con sesión iniciada).
-    [RequierePermiso("documentos","ver","compras/ver","compras/crear","embarques/editar","inventario/ver")]
+    [RequierePermiso("documentos","ver","compras/ver","compras/crear","embarques/editar","embarques/ver","inventario/ver")]
     [HttpGet("{id}/archivo")]
     public async Task<IActionResult> Descargar(uint id)
     {

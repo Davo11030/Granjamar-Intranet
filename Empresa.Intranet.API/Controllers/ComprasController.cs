@@ -32,25 +32,8 @@ public class ComprasController : ControllerBase
 
     // Convierte los DetalleMovimiento (solo guardan IdExistencia) en algo legible para la
     // auditoría: código de producto, lote, descripción y kilos — nada de ids sueltos.
-    private async Task<List<object>> ResolverDetalles(IEnumerable<DetalleMovimiento> detalles)
-    {
-        var resultado = new List<object>();
-        foreach (var d in detalles)
-        {
-            var existencia = d.IdExistencia != null ? await _context.Existencias.FindAsync(d.IdExistencia) : null;
-            var producto = existencia != null
-                ? await _context.Productos.Include(p => p.Especie).FirstOrDefaultAsync(p => p.Codigo == existencia.CodigoProducto)
-                : null;
-            resultado.Add(new
-            {
-                Producto = existencia?.CodigoProducto,
-                Lote = existencia?.Lote,
-                Descripcion = producto?.Especie?.Nombre ?? existencia?.CodigoProducto,
-                d.Kilos
-            });
-        }
-        return resultado;
-    }
+    private Task<List<object>> ResolverDetalles(IEnumerable<DetalleMovimiento> detalles) =>
+        Empresa.Intranet.API.Servicios.AuditoriaDetalles.LineasAsync(_context, detalles, completa: true);
 
     // Resuelve (o crea) el pedimento/documento de origen de un lote a partir de su tipo (ej. "A1",
     // "C1") y número — así cada Existencia queda ligada a un Documento real en vez de guardar el

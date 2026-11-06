@@ -43,6 +43,8 @@ public class CrearEmbarqueDto
     public uint? IdDireccion { get; set; }
     // Destino directo a un cliente (en lugar de una dirección).
     public uint? IdCliente { get; set; }
+    // Origen / remitente del embarque (el selector de arriba de la Requisición).
+    public uint? IdDireccionOrigen { get; set; }
     public string? RutaCiego { get; set; }
     public string? RutaRequisision { get; set; }
     public string? RutaRt { get; set; }
@@ -65,6 +67,14 @@ public class CrearDetalleEmbarqueDto
 public class CambiarEstadoEmbarqueDto
 {
     public string Estado { get; set; } = null!;
+    public uint IdUsuario { get; set; }
+}
+
+// Sellos de seguridad de la unidad de carga (Carta responsiva): el primero es obligatorio, el segundo es opcional.
+public class GuardarSellosDto
+{
+    public string? Sello1 { get; set; }
+    public string? Sello2 { get; set; }
     public uint IdUsuario { get; set; }
 }
 

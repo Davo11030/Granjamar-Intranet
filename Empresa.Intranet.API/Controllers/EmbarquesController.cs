@@ -20,11 +20,13 @@ public class EmbarquesController : ControllerBase
     private readonly AuditoriaService _auditoria;
     private readonly PermisoService _permisoService;
     private readonly PedidosConsignacionService _pedidos;
+    private readonly ConfiguracionDocumentosService _documentos;
 
     public EmbarquesController(AppDbContext context, AuditoriaService auditoria, PermisoService permisoService,
-        PedidosConsignacionService pedidos)
+        PedidosConsignacionService pedidos, ConfiguracionDocumentosService documentos)
     {
         _pedidos = pedidos;
+        _documentos = documentos;
         _context = context;
         _auditoria = auditoria;
         _permisoService = permisoService;
@@ -32,25 +34,8 @@ public class EmbarquesController : ControllerBase
 
     // Convierte los DetalleMovimiento (solo guardan IdExistencia) en algo legible para la
     // auditoría: código de producto, descripción y kilos — nada de ids sueltos.
-    private async Task<List<object>> ResolverDetalles(IEnumerable<DetalleMovimiento> detalles)
-    {
-        var resultado = new List<object>();
-        foreach (var d in detalles)
-        {
-            var existencia = d.IdExistencia != null ? await _context.Existencias.FindAsync(d.IdExistencia) : null;
-            var codigoProducto = existencia?.CodigoProducto ?? d.CodigoProducto;
-            var producto = codigoProducto != null
-                ? await _context.Productos.Include(p => p.Especie).FirstOrDefaultAsync(p => p.Codigo == codigoProducto)
-                : null;
-            resultado.Add(new
-            {
-                Producto = codigoProducto,
-                Descripcion = producto?.Especie?.Nombre ?? codigoProducto,
-                d.Kilos
-            });
-        }
-        return resultado;
-    }
+    private Task<List<object>> ResolverDetalles(IEnumerable<DetalleMovimiento> detalles) =>
+        Empresa.Intranet.API.Servicios.AuditoriaDetalles.LineasAsync(_context, detalles);
 
     // Suma el stock disponible de un producto en TODOS los lotes de una misma ubicación
     // (empresa/dirección) — la Requisición trabaja a este nivel, no por lote específico.
@@ -153,6 +138,7 @@ public class EmbarquesController : ControllerBase
         e.Numero,
         e.IdDireccion,
         e.IdCliente,
+        e.IdDireccionOrigen,
         e.HistorialMovimiento.FechaRegistro,
         Usuario = e.HistorialMovimiento.Usuario.Nombre,
         Direccion = TextoDestino(e),
@@ -247,6 +233,658 @@ public class EmbarquesController : ControllerBase
             .OrderBy(e => e.Id)
             .ToListAsync();
         return Ok(lista.Select(Proyectar));
+    }
+
+    private static string Normalizar(string? t) =>
+        new string((t ?? "").Trim().ToLowerInvariant().Normalize(System.Text.NormalizationForm.FormD)
+            .Where(c => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark).ToArray());
+
+    // Origen predeterminado de un embarque: la dirección de Ensenada de la empresa interna (el que la Requisición trae
+    // preseleccionado). Si un embarque no tiene origen guardado, ese es el que vale.
+    private async Task<Direccion?> OrigenPredeterminadoAsync()
+    {
+        var internas = await _context.Direcciones.AsNoTracking().Include(d => d.Empresa)
+            .Where(d => d.Activo && d.Empresa != null
+                && ((d.Empresa.Tipo != null && d.Empresa.Tipo.ToLower() == "interna") || d.Empresa.Nombre.ToLower().Contains("granjamar")))
+            .OrderBy(d => d.Id).ToListAsync();
+        return internas.FirstOrDefault(d => Normalizar(d.Municipio).Contains("ensenada"))
+            ?? internas.FirstOrDefault(d => Normalizar(d.DireccionTexto).Contains("ensenada"));
+    }
+
+    private static string? Texto(string? t) => string.IsNullOrWhiteSpace(t) ? null : t.Trim();
+
+    // GET api/embarques/5/requisicion — todo lo que lleva la hoja de Requisición de ese embarque (destino) ya armado:
+    // una "página" por lugar de origen (con su destino, tipo de salida y productos), el transporte y la lista de datos
+    // que faltan. La hoja se puede generar aunque falte algo: la pantalla avisa antes de descargar.
+    [RequierePermiso("embarques", "ver")]
+    [HttpGet("{id}/requisicion")]
+    public async Task<IActionResult> GetRequisicion(uint id)
+    {
+        var e = await _context.Embarques.AsNoTracking()
+            .Include(x => x.HistorialMovimiento).ThenInclude(h => h.DetallesMovimiento).ThenInclude(d => d.Existencia)
+            .Include(x => x.Direccion).ThenInclude(d => d!.Empresa)
+            .Include(x => x.Cliente)
+            .Include(x => x.DireccionOrigen).ThenInclude(d => d!.Empresa)
+            .Include(x => x.DetalleTransporte).ThenInclude(dt => dt!.Chofer)
+            .Include(x => x.DetalleTransporte).ThenInclude(dt => dt!.Tractocamion).ThenInclude(t => t!.Marca)
+            .Include(x => x.DetalleTransporte).ThenInclude(dt => dt!.Tractocamion).ThenInclude(t => t!.Empresa)
+            .Include(x => x.DetalleTransporte).ThenInclude(dt => dt!.Caja)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(x => x.Id == id && x.Activo);
+        if (e == null) return NotFound();
+
+        var faltantes = new List<string>();
+        void Falta(string texto) { if (!faltantes.Contains(texto)) faltantes.Add(texto); }
+        if (Texto(e.Numero) == null) Falta("Número de embarque");
+
+        // Destino: una dirección (con su empresa) o un cliente.
+        string? destEmpresa, destRfc, destDireccion, destMunicipio, destEstado, destSegmento = null;
+        if (e.Cliente != null)
+        {
+            var c = e.Cliente;
+            destEmpresa = Texto(c.Nombre);
+            destRfc = Texto(c.Rfc);
+            destDireccion = Texto(string.Join(", ", new[] { c.Calle, c.Colonia, string.IsNullOrWhiteSpace(c.CodigoPostal) ? null : $"C.P. {c.CodigoPostal}" }
+                .Where(x => !string.IsNullOrWhiteSpace(x))));
+            destMunicipio = Texto(c.Municipio);
+            destEstado = Texto(c.Estado);
+        }
+        else
+        {
+            var d = e.Direccion;
+            destEmpresa = Texto(d?.Empresa?.Nombre);
+            destRfc = Texto(d?.Empresa?.Rfc);
+            destDireccion = Texto(d?.DireccionTexto);
+            destMunicipio = Texto(d?.Municipio);
+            destEstado = Texto(d?.Estado);
+            destSegmento = Texto(d?.Segmento);
+        }
+        if (destEmpresa == null) Falta("Nombre del destinatario");
+        if (destRfc == null) Falta("RFC del destinatario");
+        if (destDireccion == null) Falta("Dirección del destino");
+        if (destMunicipio == null || destEstado == null) Falta("Ciudad y estado del destino");
+
+        // Remitente / origen: el que se elige arriba en la Requisición, junto al No. de embarque (NO el lugar de donde
+        // sale cada producto). Sin él, esos campos van en blanco y se avisa.
+        var o = e.DireccionOrigen ?? await OrigenPredeterminadoAsync();
+        var oEmpresa = Texto(o?.Empresa?.Nombre);
+        var oRfc = Texto(o?.Empresa?.Rfc);
+        var oDireccion = Texto(o?.DireccionTexto);
+        var oMunicipio = Texto(o?.Municipio);
+        var oEstado = Texto(o?.Estado);
+        var oSegmento = Texto(o?.Segmento);
+        if (o == null) Falta("Origen del embarque (se elige arriba en la Requisición, junto al No. de embarque)");
+        else
+        {
+            if (oEmpresa == null) Falta("Nombre del remitente");
+            if (oRfc == null) Falta("RFC del remitente");
+            if (oDireccion == null) Falta("Dirección del origen");
+            if (oMunicipio == null || oEstado == null) Falta("Ciudad y estado del origen");
+        }
+
+        // Un renglón por producto (la hoja no distingue de qué ubicación sale cada uno).
+        var detalles = e.HistorialMovimiento.DetallesMovimiento.OrderBy(d => d.Id).ToList();
+        if (detalles.Count == 0) Falta("Productos (el embarque no tiene)");
+        var codigos = detalles.Select(d => d.CodigoProducto ?? d.Existencia?.CodigoProducto).Where(c => c != null).Distinct().ToList();
+        var productos = await _context.Productos.AsNoTracking()
+            .Include(p => p.Especie).Include(p => p.Marca).Include(p => p.Talla).Include(p => p.PesoCaja)
+            .Include(p => p.Descripciones).ThenInclude(d => d.Presentacion)
+            .Where(p => codigos.Contains(p.Codigo)).ToDictionaryAsync(p => p.Codigo);
+        var renglones = new List<object>();
+        foreach (var g in detalles.GroupBy(d => d.CodigoProducto ?? d.Existencia?.CodigoProducto))
+        {
+            if (g.Key == null || !productos.TryGetValue(g.Key, out var p)) continue;
+            var kilos = g.Sum(d => d.Kilos);
+            var peso = p.PesoCaja?.Peso ?? 0;
+            if (peso <= 0) Falta($"Peso por caja de {p.Codigo} (no se puede calcular su número de cajas)");
+            var presentaciones = p.Descripciones.Select(d => d.Presentacion.Nombre).Where(n => !string.IsNullOrWhiteSpace(n));
+            renglones.Add(new
+            {
+                Codigo = p.Codigo,
+                Descripcion = string.Join(" ", new[] { p.Especie.Nombre }.Concat(presentaciones)),
+                Marca = p.Marca?.Nombre,
+                Medida = p.Talla?.Descripcion,
+                PesoCaja = peso > 0 ? peso : (decimal?)null,
+                Cajas = peso > 0 ? Math.Round(kilos / peso, 2) : (decimal?)null,
+                Kilos = kilos
+            });
+        }
+
+        // Local = misma ciudad; Al interior = otra ciudad del mismo estado; Nacional = otro estado.
+        string? ambito = null;
+        if (oMunicipio != null && oEstado != null && destMunicipio != null && destEstado != null)
+            ambito = Normalizar(oEstado) != Normalizar(destEstado) ? "Nacional"
+                : Normalizar(oMunicipio) == Normalizar(destMunicipio) ? "Local" : "Al interior";
+
+        var paginas = new List<object>
+        {
+            new
+            {
+                Origen = new { Empresa = oEmpresa, Rfc = oRfc, Segmento = oSegmento, Direccion = oDireccion, Municipio = oMunicipio, Estado = oEstado },
+                Ambito = ambito,
+                Productos = renglones
+            }
+        };
+
+        // Datos fijos de la hoja (título, quienes firman…): se editan en Admin → Documentos.
+        var config = await _documentos.ObtenerAsync(ConfiguracionDocumentosService.Requisicion);
+        foreach (var (clave, rotulo) in new[] { ("Despacho", "despacha"), ("Reviso", "revisa"), ("Autorizo", "autoriza") })
+            if (string.IsNullOrWhiteSpace(config[clave])) Falta($"Nombre de quien {rotulo} (Admin → Documentos)");
+
+        // Transporte.
+        var dt = e.DetalleTransporte;
+        var chofer = dt?.Chofer;
+        var tracto = dt?.Tractocamion;
+        var caja = dt?.Caja;
+        if (chofer == null) Falta("Operador (nombre y teléfono)");
+        else
+        {
+            if (Texto(chofer.NumeroTelefono) == null) Falta("Teléfono del operador");
+            if (Texto(chofer.TipoTelefono) == null) Falta("Tipo de teléfono del operador");
+        }
+        if (tracto == null) Falta("Tractocamión (compañía, placas, modelo, marca y color)");
+        else
+        {
+            if (Texto(tracto.Empresa?.Nombre) == null) Falta("Compañía de transporte");
+            if (Texto(tracto.Placa) == null) Falta("Placas del tractor");
+        }
+        if (caja == null) Falta("Caja (placas, tamaño y capacidad)");
+        else
+        {
+            if (Texto(caja.CajaPlaca) == null) Falta("Placas de la caja");
+            if (Texto(caja.CajaTamano) == null) Falta("Tamaño de la caja");
+            if (caja.CajaCapacidad == null) Falta("Capacidad de la caja");
+        }
+
+        return Ok(new
+        {
+            e.Id,
+            e.Numero,
+            Fecha = e.HistorialMovimiento.FechaRegistro,
+            Destino = new { Empresa = destEmpresa, Rfc = destRfc, Segmento = destSegmento, Direccion = destDireccion, Municipio = destMunicipio, Estado = destEstado },
+            // Traspaso entre almacenes (a una bodega/empresa) o venta directa (a un cliente).
+            TipoSalida = e.Cliente != null ? "Venta directa" : "Traspaso entre almacenes",
+            Paginas = paginas,
+            Configuracion = config,
+            Transporte = new
+            {
+                Nombre = Texto(chofer?.Nombre),
+                Compania = Texto(tracto?.Empresa?.Nombre),
+                Telefono = Texto(chofer?.NumeroTelefono),
+                TipoTelefono = Texto(chofer?.TipoTelefono),
+                Modelo = tracto?.Modelo,
+                Marca = Texto(tracto?.Marca?.Nombre),
+                Color = Texto(tracto?.Color),
+                PlacasTractor = Texto(tracto?.Placa),
+                PlacasCaja = Texto(caja?.CajaPlaca),
+                TamanoCaja = Texto(caja?.CajaTamano),
+                CapacidadKg = caja?.CajaCapacidad
+            },
+            Faltantes = faltantes
+        });
+    }
+
+    // GET api/embarques/5/solicitud-documento — todo lo que lleva la hoja de Solicitud del embarque (de TODOS sus destinos:
+    // un número de embarque compartido es un solo documento con un bloque por destino) ya armado, más la lista de datos
+    // que faltan. La hoja se puede generar aunque falte algo: la pantalla avisa antes de descargar.
+    [RequierePermiso("embarques", "ver")]
+    [HttpGet("{id}/solicitud-documento")]
+    public async Task<IActionResult> GetSolicitudDocumento(uint id)
+    {
+        var actual = await _context.Embarques.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.Activo);
+        if (actual == null) return NotFound();
+
+        var hermanos = await _context.Embarques.AsNoTracking()
+            .Include(x => x.HistorialMovimiento).ThenInclude(h => h.DetallesMovimiento).ThenInclude(d => d.Existencia)
+            .Include(x => x.SolicitudDetalles).ThenInclude(d => d.Existencia)
+            .Include(x => x.SolicitudTarimas)
+            .Include(x => x.Direccion).ThenInclude(d => d!.Empresa)
+            .Include(x => x.Cliente)
+            .Include(x => x.DetalleTransporte).ThenInclude(dt => dt!.Chofer)
+            .Include(x => x.DetalleTransporte).ThenInclude(dt => dt!.Tractocamion).ThenInclude(t => t!.Marca)
+            .Include(x => x.DetalleTransporte).ThenInclude(dt => dt!.Tractocamion).ThenInclude(t => t!.Empresa)
+            .Include(x => x.DetalleTransporte).ThenInclude(dt => dt!.Caja)
+            .Where(x => x.Activo && (actual.Numero == null ? x.Id == id : x.Numero == actual.Numero))
+            .OrderBy(x => x.Id)
+            .AsSplitQuery()
+            .ToListAsync();
+
+        var faltantes = new List<string>();
+        void Falta(string texto) { if (!faltantes.Contains(texto)) faltantes.Add(texto); }
+        if (Texto(actual.Numero) == null) Falta("Número de embarque");
+
+        var codigos = hermanos.SelectMany(h => h.HistorialMovimiento.DetallesMovimiento.Select(d => d.CodigoProducto ?? d.Existencia?.CodigoProducto)
+                .Concat(h.SolicitudDetalles.Select(d => d.Existencia.CodigoProducto))
+                .Concat(h.SolicitudTarimas.Select(t => (string?)t.CodigoProducto)))
+            .Where(c => c != null).Distinct().ToList();
+        var productos = await _context.Productos.AsNoTracking()
+            .Include(p => p.Especie).Include(p => p.Marca).Include(p => p.Talla)
+            .Include(p => p.Descripciones).ThenInclude(d => d.Presentacion)
+            .Where(p => codigos.Contains(p.Codigo)).ToDictionaryAsync(p => p.Codigo);
+
+        static string Num(decimal n) => n.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+        // Como se escriben en la hoja: "ESPECIE TALLA MARCA PRESENTACIÓN" (ej. "TILAPIA 350/550 GMR 100%"), sin el peso de la caja.
+        string Descripcion(string codigo)
+        {
+            return productos.TryGetValue(codigo, out var p) ? DescripcionHoja(p) : codigo;
+        }
+
+        var destinos = new List<object>();
+        decimal totalKilos = 0;
+        int totalTarimas = 0;
+        foreach (var (h, indice) in hermanos.Select((h, i) => (h, i)))
+        {
+            // Destino: a quién va (recuadro oscuro) y a dónde (encabezado de la columna de kilos).
+            string? empresa, etiqueta;
+            if (h.Cliente != null) { empresa = Texto(h.Cliente.Nombre); etiqueta = Texto(h.Cliente.Municipio) ?? Texto(h.Cliente.Nombre); }
+            else { empresa = Texto(h.Direccion?.Empresa?.Nombre); etiqueta = Texto(h.Direccion?.DireccionTexto) ?? Texto(h.Direccion?.Municipio); }
+            var nombreDestino = hermanos.Count > 1 ? $" del destino {indice + 1}" : "";
+            if (empresa == null) Falta($"Nombre del destinatario{nombreDestino}");
+            if (etiqueta == null) Falta($"Nombre o ciudad del destino{(hermanos.Count > 1 ? $" {indice + 1}" : "")}");
+
+            var planeados = h.HistorialMovimiento.DetallesMovimiento.OrderBy(d => d.Id).ToList();
+            var capturada = h.SolicitudDetalles.Count > 0;
+            if (planeados.Count == 0 && !capturada) Falta($"Productos{nombreDestino} (el embarque no tiene)");
+            else if (!capturada) Falta($"Solicitud{nombreDestino} sin capturar (lotes y tarimas)");
+
+            // Un renglón por producto y ubicación de origen, en el orden de la Requisición.
+            var claves = new List<(string Codigo, uint? Direccion)>();
+            foreach (var d in planeados)
+            {
+                var c = d.CodigoProducto ?? d.Existencia?.CodigoProducto;
+                if (c != null && !claves.Contains((c, d.IdDireccion))) claves.Add((c, d.IdDireccion));
+            }
+            foreach (var d in h.SolicitudDetalles.OrderBy(d => d.Id))
+                if (!claves.Contains((d.Existencia.CodigoProducto, d.IdDireccion))) claves.Add((d.Existencia.CodigoProducto, d.IdDireccion));
+
+            var renglones = new List<object>();
+            foreach (var (codigo, dir) in claves)
+            {
+                var detalles = h.SolicitudDetalles.Where(d => d.Existencia.CodigoProducto == codigo && d.IdDireccion == dir).ToList();
+                var kilos = detalles.Count > 0 ? detalles.Sum(d => d.Kilos)
+                    : planeados.Where(d => (d.CodigoProducto ?? d.Existencia?.CodigoProducto) == codigo && d.IdDireccion == dir).Sum(d => d.Kilos);
+                var tarimas = h.SolicitudTarimas.Where(t => t.CodigoProducto == codigo && t.IdDireccion == dir).OrderBy(t => t.Id).ToList();
+                var numTarimas = tarimas.Sum(t => t.NumTarimas);
+                if (capturada && tarimas.Count == 0) Falta($"Tarimas de {codigo}{nombreDestino}");
+                var especificaciones = string.Join(" / ", detalles.Select(d => Texto(d.LoteEspecificaciones)).Where(x => x != null).Distinct());
+                totalKilos += kilos;
+                totalTarimas += numTarimas;
+                renglones.Add(new
+                {
+                    Codigo = codigo,
+                    Descripcion = Descripcion(codigo),
+                    Kilos = kilos,
+                    // "9X90" = 9 tarimas de 90 cajas; varias desiguales van unidas con guion ("4X198-1X179").
+                    Tarimas = string.Join("-", tarimas.Select(t => $"{t.NumTarimas}X{Num(t.CajasPorTarima)}")),
+                    NumTarimas = numTarimas,
+                    Lotes = especificaciones
+                });
+            }
+            destinos.Add(new { h.Id, Empresa = empresa, Etiqueta = etiqueta, Productos = renglones });
+        }
+
+        // Transporte (el mismo para todos los destinos del embarque).
+        var dt = hermanos.Select(h => h.DetalleTransporte).FirstOrDefault(x => x != null);
+        var chofer = dt?.Chofer;
+        var tracto = dt?.Tractocamion;
+        var caja = dt?.Caja;
+        if (chofer == null) Falta("Operador (nombre y celular)");
+        else if (Texto(chofer.NumeroTelefono) == null) Falta("Celular del operador");
+        if (tracto == null) Falta("Tractocamión (compañía, marca, color, modelo y placas)");
+        else
+        {
+            if (Texto(tracto.Empresa?.Nombre) == null) Falta("Compañía de transporte");
+            if (Texto(tracto.Placa) == null) Falta("Placas del tractor");
+        }
+        if (caja == null || Texto(caja.CajaPlaca) == null) Falta("Placas de la caja");
+
+        return Ok(new
+        {
+            actual.Numero,
+            Fecha = hermanos.Select(h => h.HistorialMovimiento.FechaRegistro).DefaultIfEmpty(DateTime.UtcNow).Min(),
+            Transportes = Texto(tracto?.Empresa?.Nombre),
+            Configuracion = await _documentos.ObtenerAsync(ConfiguracionDocumentosService.Solicitud),
+            Destinos = destinos,
+            TotalKilos = totalKilos,
+            TotalTarimas = totalTarimas,
+            Transporte = new
+            {
+                Operador = Texto(chofer?.Nombre),
+                Celular = Texto(chofer?.NumeroTelefono),
+                // "VOLVO ROJO 2019"
+                Tracto = Texto(string.Join(" ", new[] { tracto?.Marca?.Nombre, tracto?.Color, tracto?.Modelo.ToString() }.Where(x => !string.IsNullOrWhiteSpace(x)))),
+                PlacasTractor = Texto(tracto?.Placa),
+                PlacasCaja = Texto(caja?.CajaPlaca),
+                // Los que se capturan al generar la Carta responsiva ("0045871 / 0045872"); en blanco si aún no se capturan.
+                Sellos = Texto(string.Join(" / ", hermanos.SelectMany(h => new[] { Texto(h.SelloSeguridad1), Texto(h.SelloSeguridad2) }).Where(s => s != null).Distinct()))
+            },
+            Faltantes = faltantes
+        });
+    }
+
+    // GET api/embarques/5/ciego-documento — lo que lleva la hoja de Ciego de carga: una fila por TARIMA física (las que se
+    // capturaron en la Solicitud) con su producto, sus cajas, sus kilos y a qué sucursal va; de todos los destinos del
+    // mismo número de embarque. DESTINO (arriba) es la empresa a la que se manda y SUCURSAL la ciudad donde está ubicada.
+    [RequierePermiso("embarques", "ver")]
+    [HttpGet("{id}/ciego-documento")]
+    public async Task<IActionResult> GetCiegoDocumento(uint id)
+    {
+        var actual = await _context.Embarques.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.Activo);
+        if (actual == null) return NotFound();
+
+        var hermanos = await _context.Embarques.AsNoTracking()
+            .Include(x => x.HistorialMovimiento)
+            .Include(x => x.SolicitudDetalles).ThenInclude(d => d.Existencia)
+            .Include(x => x.SolicitudTarimas)
+            .Include(x => x.Direccion).ThenInclude(d => d!.Empresa)
+            .Include(x => x.Cliente)
+            .Include(x => x.DetalleTransporte).ThenInclude(dt => dt!.Chofer)
+            .Include(x => x.DetalleTransporte).ThenInclude(dt => dt!.Tractocamion).ThenInclude(t => t!.Empresa)
+            .Where(x => x.Activo && (actual.Numero == null ? x.Id == id : x.Numero == actual.Numero))
+            .OrderBy(x => x.Id)
+            .AsSplitQuery()
+            .ToListAsync();
+
+        var faltantes = new List<string>();
+        void Falta(string texto) { if (!faltantes.Contains(texto)) faltantes.Add(texto); }
+        if (Texto(actual.Numero) == null) Falta("Número de embarque");
+
+        var codigos = hermanos.SelectMany(h => h.SolicitudTarimas.Select(t => t.CodigoProducto)).Distinct().ToList();
+        var productos = await _context.Productos.AsNoTracking()
+            .Include(p => p.Especie).Include(p => p.Marca).Include(p => p.Talla).Include(p => p.PesoCaja)
+            .Include(p => p.Descripciones).ThenInclude(d => d.Presentacion)
+            .Where(p => codigos.Contains(p.Codigo)).ToDictionaryAsync(p => p.Codigo);
+
+        var filas = new List<object>();
+        var empresas = new List<string>();
+        var sucursales = new List<string>();
+        decimal totalKilos = 0;
+        var numero = 0;
+        foreach (var (h, indice) in hermanos.Select((h, i) => (h, i)))
+        {
+            // DESTINO = la empresa; SUCURSAL = dónde está ubicada (su ciudad).
+            string? empresa, sucursal;
+            if (h.Cliente != null) { empresa = Texto(h.Cliente.Nombre); sucursal = Texto(h.Cliente.Municipio); }
+            else { empresa = Texto(h.Direccion?.Empresa?.Nombre); sucursal = Texto(h.Direccion?.Municipio) ?? Texto(h.Direccion?.DireccionTexto); }
+            var nombreDestino = hermanos.Count > 1 ? $" del destino {indice + 1}" : "";
+            if (empresa == null) Falta($"Nombre del destinatario{nombreDestino}");
+            else if (!empresas.Contains(empresa)) empresas.Add(empresa);
+            if (sucursal == null) Falta($"Sucursal (ciudad) del destino{(hermanos.Count > 1 ? $" {indice + 1}" : "")}");
+            else if (!sucursales.Contains(sucursal)) sucursales.Add(sucursal);
+            if (h.SolicitudTarimas.Count == 0) { Falta($"Tarimas{nombreDestino} (la Solicitud no se ha capturado)"); continue; }
+
+            // Las tarimas de un mismo producto y ubicación van juntas, en el orden en que se capturaron.
+            var grupos = h.SolicitudTarimas.OrderBy(t => t.Id).GroupBy(t => (t.CodigoProducto, t.IdDireccion)).ToList();
+            foreach (var g in grupos)
+            {
+                var codigo = g.Key.CodigoProducto;
+                productos.TryGetValue(codigo, out var p);
+                var peso = p?.PesoCaja?.Peso ?? 0;
+                // Sin peso por caja se reparten los kilos de la Solicitud entre las cajas del producto.
+                var cajasGrupo = g.Sum(t => t.NumTarimas * t.CajasPorTarima);
+                var kilosSolicitud = h.SolicitudDetalles.Where(d => d.Existencia.CodigoProducto == codigo && d.IdDireccion == g.Key.IdDireccion).Sum(d => d.Kilos);
+                if (peso <= 0 && cajasGrupo > 0 && kilosSolicitud > 0) peso = kilosSolicitud / cajasGrupo;
+                if (peso <= 0) Falta($"Peso por caja de {codigo} (no se pueden calcular los kilos de sus tarimas)");
+                var descripcion = p != null ? DescripcionHoja(p) : codigo;
+                foreach (var t in g)
+                    for (var i = 0; i < t.NumTarimas; i++)
+                    {
+                        var kilos = Math.Round(t.CajasPorTarima * peso, 2);
+                        totalKilos += kilos;
+                        filas.Add(new { Tarima = ++numero, Producto = descripcion, Cajas = t.CajasPorTarima, Kilos = kilos, Destino = sucursal, Grupo = indice });
+                    }
+            }
+        }
+
+        var dt = hermanos.Select(h => h.DetalleTransporte).FirstOrDefault(x => x != null);
+        var chofer = dt?.Chofer;
+        var tracto = dt?.Tractocamion;
+        if (chofer == null || Texto(chofer.Nombre) == null) Falta("Operador");
+        if (Texto(tracto?.Empresa?.Nombre) == null) Falta("Compañía de transporte");
+
+        return Ok(new
+        {
+            actual.Numero,
+            Fecha = hermanos.Select(h => h.HistorialMovimiento.FechaRegistro).DefaultIfEmpty(DateTime.UtcNow).Min(),
+            Configuracion = await _documentos.ObtenerAsync(ConfiguracionDocumentosService.Ciego),
+            Destino = string.Join(" / ", empresas),
+            Sucursal = string.Join(" / ", sucursales),
+            Transportes = Texto(tracto?.Empresa?.Nombre),
+            Operador = Texto(chofer?.Nombre),
+            Tarimas = filas,
+            TotalKilos = totalKilos,
+            Faltantes = faltantes
+        });
+    }
+
+    // GET api/embarques/5/carta-documento — lo que lleva la Carta responsiva de los sellos de seguridad: la fecha, el destino
+    // final (la ciudad de cada destino del mismo número de embarque), los números de sello y la compañía de transporte
+    // que firma. La carta es de la unidad de carga, así que es una sola por número de embarque.
+    [RequierePermiso("embarques", "ver")]
+    [HttpGet("{id}/carta-documento")]
+    public async Task<IActionResult> GetCartaDocumento(uint id)
+    {
+        var actual = await _context.Embarques.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.Activo);
+        if (actual == null) return NotFound();
+
+        var hermanos = await _context.Embarques.AsNoTracking()
+            .Include(x => x.HistorialMovimiento)
+            .Include(x => x.Direccion)
+            .Include(x => x.Cliente)
+            .Include(x => x.DetalleTransporte).ThenInclude(dt => dt!.Tractocamion).ThenInclude(t => t!.Empresa)
+            .Where(x => x.Activo && (actual.Numero == null ? x.Id == id : x.Numero == actual.Numero))
+            .OrderBy(x => x.Id)
+            .AsSplitQuery()
+            .ToListAsync();
+
+        var faltantes = new List<string>();
+        void Falta(string texto) { if (!faltantes.Contains(texto)) faltantes.Add(texto); }
+
+        var sello1 = hermanos.Select(h => Texto(h.SelloSeguridad1)).FirstOrDefault(s => s != null);
+        var sello2 = hermanos.Select(h => Texto(h.SelloSeguridad2)).FirstOrDefault(s => s != null);
+        if (sello1 == null) Falta("Número de sello de seguridad (al menos uno)");
+
+        var destinos = new List<string>();
+        foreach (var h in hermanos)
+        {
+            var lugar = h.Cliente != null
+                ? string.Join(", ", new[] { Texto(h.Cliente.Municipio), Texto(h.Cliente.Estado) }.Where(x => x != null))
+                : string.Join(", ", new[] { Texto(h.Direccion?.Municipio), Texto(h.Direccion?.Estado) }.Where(x => x != null));
+            if (lugar.Length > 0 && !destinos.Contains(lugar)) destinos.Add(lugar);
+        }
+        if (destinos.Count == 0) Falta("Destino final (ciudad y estado)");
+
+        var transportista = hermanos.Select(h => Texto(h.DetalleTransporte?.Tractocamion?.Empresa?.Nombre)).FirstOrDefault(n => n != null);
+        if (transportista == null) Falta("Compañía de transporte (quien firma la carta)");
+
+        return Ok(new
+        {
+            actual.Id,
+            actual.Numero,
+            Fecha = hermanos.Select(h => h.HistorialMovimiento.FechaRegistro).DefaultIfEmpty(DateTime.UtcNow).Min(),
+            Sello1 = sello1,
+            Sello2 = sello2,
+            DestinoFinal = string.Join(" / ", destinos),
+            Transportista = transportista,
+            Faltantes = faltantes
+        });
+    }
+
+    // PUT api/embarques/5/sellos — guarda los números de sello de seguridad de la unidad de carga. Se necesita al menos
+    // uno; se guardan en todos los destinos del mismo número de embarque, porque es el mismo camión.
+    [HttpPut("{id}/sellos")]
+    public async Task<IActionResult> GuardarSellos(uint id, [FromBody] GuardarSellosDto dto)
+    {
+        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "embarques", "editar"))
+            return this.SinPermiso();
+
+        var sello1 = Texto(dto.Sello1);
+        var sello2 = Texto(dto.Sello2);
+        if (sello1 == null) return BadRequest(new { mensaje = "Escribe al menos un número de sello de seguridad" });
+
+        var actual = await _context.Embarques.FirstOrDefaultAsync(x => x.Id == id && x.Activo);
+        if (actual == null) return NotFound();
+        var hermanos = await _context.Embarques
+            .Where(x => x.Activo && (actual.Numero == null ? x.Id == id : x.Numero == actual.Numero))
+            .ToListAsync();
+
+        var antes = new { actual.SelloSeguridad1, actual.SelloSeguridad2 };
+        foreach (var h in hermanos)
+        {
+            h.SelloSeguridad1 = sello1;
+            h.SelloSeguridad2 = sello2;
+            h.CartaCompleta = true;
+        }
+        await _context.SaveChangesAsync();
+        await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR", antes, new { SelloSeguridad1 = sello1, SelloSeguridad2 = sello2 }, dto.IdUsuario);
+        return NoContent();
+    }
+
+    // GET api/embarques/5/rt-documento — los datos variables de la Remisión-Traslado (RT) de UN destino (el embarque `id`):
+    // a quién se remite, los productos (kilos, precio, importe y pedimentos/facturas), el desglose por clave SAT y los
+    // totales, más los documentos que se anexan al PDF (los pedimentos/facturas seleccionados en la pantalla del RT) y la
+    // lista de lo que falta. La hoja ya viene impresa y enumerada: aquí solo va lo que se escribe encima.
+    [RequierePermiso("embarques", "ver")]
+    [HttpGet("{id}/rt-documento")]
+    public async Task<IActionResult> GetRtDocumento(uint id)
+    {
+        var e = await _context.Embarques.AsNoTracking()
+            .Include(x => x.HistorialMovimiento)
+            .Include(x => x.SolicitudDetalles).ThenInclude(d => d.Existencia).ThenInclude(ex => ex.DocumentoOrigen).ThenInclude(d => d!.DocumentoTipo)
+            .Include(x => x.RtDetalles).ThenInclude(d => d.Documentos).ThenInclude(d => d.Documento).ThenInclude(d => d.DocumentoTipo)
+            .Include(x => x.Direccion).ThenInclude(d => d!.Empresa)
+            .Include(x => x.Cliente)
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(x => x.Id == id && x.Activo);
+        if (e == null) return NotFound();
+
+        var faltantes = new List<string>();
+        void Falta(string texto) { if (!faltantes.Contains(texto)) faltantes.Add(texto); }
+        if (Texto(e.Numero) == null) Falta("Número de embarque");
+
+        // ── A quién se remite ───────────────────────────────────────────────────────────────────────────────────────────
+        string? nombre, rfc, calle, municipio, estado, cp;
+        if (e.Cliente != null)
+        {
+            nombre = Texto(e.Cliente.Nombre); rfc = Texto(e.Cliente.Rfc);
+            calle = Texto(string.Join(", ", new[] { e.Cliente.Calle, e.Cliente.Colonia }.Where(x => !string.IsNullOrWhiteSpace(x))));
+            municipio = Texto(e.Cliente.Municipio); estado = Texto(e.Cliente.Estado); cp = Texto(e.Cliente.CodigoPostal);
+        }
+        else
+        {
+            nombre = Texto(e.Direccion?.Empresa?.Nombre); rfc = Texto(e.Direccion?.Empresa?.Rfc);
+            calle = Texto(e.Direccion?.DireccionTexto); municipio = Texto(e.Direccion?.Municipio);
+            estado = Texto(e.Direccion?.Estado); cp = Texto(e.Direccion?.CodigoPostal);
+        }
+        if (nombre == null) Falta("Nombre del cliente (destinatario)");
+        if (rfc == null) Falta("RFC del cliente");
+        if (calle == null) Falta("Dirección del cliente");
+        if (municipio == null && estado == null) Falta("Ciudad y estado del cliente");
+        if (cp == null) Falta("Código postal del cliente (se captura en la dirección del destino)");
+
+        // ── Productos ───────────────────────────────────────────────────────────────────────────────────────────────────
+        var codigos = e.SolicitudDetalles.Select(d => d.Existencia.CodigoProducto).Distinct().ToList();
+        var productos = await _context.Productos.AsNoTracking()
+            .Include(p => p.Especie).ThenInclude(s => s.ClaveSat)
+            .Where(p => codigos.Contains(p.Codigo)).ToDictionaryAsync(p => p.Codigo);
+        // (una RT vieja pudo guardar un producto dos veces: se toma el último)
+        var guardadas = e.RtDetalles.GroupBy(d => d.CodigoProducto).ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.Id).First());
+        if (e.SolicitudDetalles.Count == 0) Falta("Productos (la Solicitud no se ha capturado)");
+        else if (e.RtDetalles.Count == 0) Falta("La RT todavía no se envió: los precios y los pedimentos son los sugeridos");
+
+        // "PED.261132596002385" · "F-18127": como se escribe cada documento debajo del producto.
+        static string Referencia(string? tipo, string numero)
+        {
+            var n = numero.Trim();
+            var t = (tipo ?? "").Trim().ToLowerInvariant();
+            // Factura: siempre "F-" y su número.
+            if (t.Contains("factura"))
+            {
+                if (n.StartsWith("F-", StringComparison.OrdinalIgnoreCase)) n = n[2..].TrimStart();
+                return $"F-{n}".ToUpperInvariant();
+            }
+            // Cualquier otro (pedimento A1, C1, etc.): siempre "PED." y el nombre del pedimento, sin espacios.
+            var nombre = string.Concat(n.Where(c => !char.IsWhiteSpace(c))).ToUpperInvariant();
+            if (nombre.StartsWith("PED.", StringComparison.Ordinal)) nombre = nombre[4..];
+            return $"PED.{nombre}";
+        }
+        static decimal Redondear(decimal n) => Math.Round(n, 2, MidpointRounding.AwayFromZero);
+
+        var anexos = new List<object>();
+        var anexados = new HashSet<uint>();
+        void Anexar(Documento d)
+        {
+            if (!anexados.Add(d.Id)) return;
+            var etiqueta = $"{d.DocumentoTipo.Nombre} {d.Numero}";
+            var xml = d.ArchivoTipo?.Contains("xml", StringComparison.OrdinalIgnoreCase) == true;
+            if (d.ArchivoRuta == null) Falta($"{etiqueta} no tiene archivo cargado (no se anexa al PDF)");
+            else if (xml) Falta($"{etiqueta} es un XML (no se puede anexar al PDF)");
+            anexos.Add(new { IdDocumento = d.Id, Etiqueta = etiqueta, TieneArchivo = d.ArchivoRuta != null && !xml, d.ArchivoTipo, d.ArchivoNombre });
+        }
+
+        var renglones = new List<(string Codigo, string Descripcion, decimal Kilos, decimal Precio, decimal Importe, string? ClaveSat, string? DescSat, List<string> Documentos)>();
+        foreach (var g in e.SolicitudDetalles.OrderBy(d => d.Id).GroupBy(d => d.Existencia.CodigoProducto))
+        {
+            productos.TryGetValue(g.Key, out var p);
+            guardadas.TryGetValue(g.Key, out var rt);
+            var kilos = g.Sum(d => d.Kilos);
+            var precio = rt?.PrecioUnitario ?? p?.PrecioKilo ?? 0;
+            if (precio <= 0) Falta($"Precio unitario de {g.Key}");
+            var clave = Texto(rt?.ClaveSat) ?? Texto(p?.Especie.CodigoClaveSat);
+            var descSat = Texto(rt?.DescripcionSat) ?? Texto(p?.Especie.ClaveSat?.Nombre);
+            if (clave == null) Falta($"Clave SAT de {g.Key}");
+
+            // Los documentos de este producto: los que se marcaron en la RT; si no se ha enviado, los de sus lotes.
+            var docs = rt != null
+                ? rt.Documentos.OrderBy(x => x.Id).Select(x => x.Documento).ToList()
+                : g.Select(d => d.Existencia.DocumentoOrigen).Where(d => d != null).Select(d => d!).DistinctBy(d => d.Id).ToList();
+            if (docs.Count == 0) Falta($"Pedimento o factura de {g.Key}");
+            foreach (var d in docs) Anexar(d);
+
+            renglones.Add((g.Key, (p?.Especie.Nombre ?? g.Key).ToUpperInvariant(), kilos, precio, Redondear(kilos * precio), clave, descSat,
+                docs.Select(d => Referencia(d.DocumentoTipo.Nombre, d.Numero)).ToList()));
+        }
+
+        // Desglose por clave SAT: kilos e importe de cada una (en el orden en que se acostumbra en la hoja).
+        string[] orden = { "50121537", "50121706", "50121612" };
+        var claves = renglones.GroupBy(r => (Clave: r.ClaveSat ?? "", Nombre: r.DescSat ?? ""))
+            .Select(g => new { Codigo = g.Key.Clave, Nombre = g.Key.Nombre, Kilos = g.Sum(r => r.Kilos), Importe = g.Sum(r => r.Importe) })
+            .OrderBy(c => Array.IndexOf(orden, c.Codigo) is var i and >= 0 ? i : orden.Length).ThenBy(c => c.Codigo)
+            .ToList();
+
+        var origen = await _documentos.ObtenerAsync(ConfiguracionDocumentosService.Rt);
+        return Ok(new
+        {
+            e.Numero,
+            Fecha = e.HistorialMovimiento.FechaRegistro,
+            Configuracion = origen,
+            Cliente = new
+            {
+                Nombre = nombre, Rfc = rfc, Direccion = calle,
+                Ciudad = Texto(string.Join(", ", new[] { municipio, estado }.Where(x => !string.IsNullOrWhiteSpace(x)))),
+                CodigoPostal = cp
+            },
+            Productos = renglones.Select(r => new
+            {
+                r.Codigo, r.Descripcion, r.Kilos, r.Precio, r.Importe, ClaveSat = r.ClaveSat, DescripcionSat = r.DescSat,
+                Documentos = r.Documentos
+            }),
+            Claves = claves,
+            TotalKilos = renglones.Sum(r => r.Kilos),
+            Total = renglones.Sum(r => r.Importe),
+            Anexos = anexos,
+            Faltantes = faltantes
+        });
+    }
+
+    // "ESPECIE TALLA MARCA PRESENTACIÓN" como se escribe el producto en las hojas (ej. "TILAPIA 350/550 GMR 100%"). La
+    // presentación "Caja" es el empaque, no parte del nombre, y no se escribe; tampoco el peso de la caja.
+    private static string DescripcionHoja(Producto p)
+    {
+        var partes = new List<string?> { p.Especie.Nombre, p.Talla?.Descripcion, p.Marca?.Nombre };
+        partes.AddRange(p.Descripciones.Select(d => d.Presentacion.Nombre)
+            .Where(n => !string.Equals(n?.Trim(), "Caja", StringComparison.OrdinalIgnoreCase) && !string.Equals(n?.Trim(), "Cajas", StringComparison.OrdinalIgnoreCase)));
+        return string.Join(" ", partes.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!.Trim()));
     }
 
     // Una requisición debe pedir al menos un producto y cada uno con kilos > 0 (con kilos
@@ -354,6 +992,7 @@ public class EmbarquesController : ControllerBase
             IdHistorial = historial.Id,
             IdDireccion = dto.IdDireccion,
             IdCliente = dto.IdCliente,
+            IdDireccionOrigen = dto.IdDireccionOrigen ?? (await OrigenPredeterminadoAsync())?.Id,
             RutaCiego = dto.RutaCiego,
             RutaRequisision = dto.RutaRequisision,
             RutaRt = dto.RutaRt,
@@ -752,6 +1391,7 @@ public class EmbarquesController : ControllerBase
         embarque.Numero = dto.Numero;
         embarque.IdDireccion = dto.IdDireccion;
         embarque.IdCliente = dto.IdCliente;
+        embarque.IdDireccionOrigen = dto.IdDireccionOrigen ?? (await OrigenPredeterminadoAsync())?.Id;
         embarque.RutaCiego = dto.RutaCiego;
         embarque.RutaRequisision = dto.RutaRequisision;
         embarque.RutaRt = dto.RutaRt;

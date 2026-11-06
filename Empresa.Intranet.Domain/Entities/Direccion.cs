@@ -5,6 +5,10 @@ public class Direccion
     public string DireccionTexto { get; set; } = null!;
     public string Estado { get; set; } = null!;
     public string Municipio { get; set; } = null!;
+    // Código postal: la Remisión-Traslado (RT) lo imprime en la ciudad del destino.
+    public string? CodigoPostal { get; set; }
+    // "# Segmento o Cliente" de esta dirección: se escribe en el recuadro de origen/destino de la Requisición.
+    public string? Segmento { get; set; }
     public uint? IdEmpresa { get; set; }
     public bool Activo { get; set; } = true;
     public Empresa? Empresa { get; set; }

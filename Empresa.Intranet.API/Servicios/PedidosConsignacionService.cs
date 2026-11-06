@@ -1,4 +1,5 @@
 using Empresa.Intranet.Domain.Entities;
+using System.Linq.Expressions;
 using Empresa.Intranet.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,6 +15,13 @@ public class PedidosConsignacionService
 {
     public const string Pendiente = "Pendiente";
     public const string Liberado = "Liberado";
+    public const string Cancelado = "Cancelado";
+
+    // Un pedido está CERRADO cuando ya se compró algo (alguna orden de embarque), se liberó por completo o se canceló al
+    // dividirlo: ningún cambio del embarque/venta/producción de origen lo modifica ni lo anula. Los pedidos nacidos de
+    // dividir otro también quedan fuera de la sincronización: su reparto lo decidió el usuario.
+    public static readonly Expression<Func<PedidoConsignacion, bool>> EstaCerrado =
+        p => p.Estado != Pendiente || p.Ordenes.Any() || p.IdPedidoDividido != null;
 
     private readonly AppDbContext _context;
 
@@ -28,8 +36,8 @@ public class PedidosConsignacionService
         IEnumerable<LineaPedido> lineas)
     {
         var pendientes = await _context.PedidosConsignacion.Include(p => p.Detalles)
-            .Where(p => p.Activo && p.TipoOrigen == tipoOrigen && p.IdOrigen == idOrigen
-                        && p.Estado == Pendiente && p.IdDocumentoFactura == null)
+            .Where(p => p.Activo && p.TipoOrigen == tipoOrigen && p.IdOrigen == idOrigen)
+            .Where(NoCerrado)
             .ToListAsync();
 
         var lista = lineas.Where(l => l.IdDireccion != null && l.Kilos > 0).ToList();
@@ -48,8 +56,8 @@ public class PedidosConsignacionService
             .ToDictionaryAsync(d => d.Id, d => (IdEmpresa: d.IdEmpresa!.Value, d.Tipo));
 
         var yaLiberadas = await _context.PedidosConsignacion
-            .Where(p => p.Activo && p.TipoOrigen == tipoOrigen && p.IdOrigen == idOrigen
-                        && (p.Estado == Liberado || p.IdDocumentoFactura != null))
+            .Where(p => p.Activo && p.TipoOrigen == tipoOrigen && p.IdOrigen == idOrigen)
+            .Where(EstaCerrado)
             .Select(p => p.IdEmpresa).ToListAsync();
 
         var porEmpresa = lista
@@ -101,8 +109,13 @@ public class PedidosConsignacionService
         await _context.SaveChangesAsync();
     }
 
+    private static readonly Expression<Func<PedidoConsignacion, bool>> NoCerrado = Negar(EstaCerrado);
+
+    private static Expression<Func<PedidoConsignacion, bool>> Negar(Expression<Func<PedidoConsignacion, bool>> e) =>
+        Expression.Lambda<Func<PedidoConsignacion, bool>>(Expression.Not(e.Body), e.Parameters);
+
     // Siguiente folio Ens-## de la empresa (consecutivo, incluye los pedidos ya anulados).
-    private async Task<string> SiguienteNumeroAsync(uint idEmpresa)
+    public async Task<string> SiguienteNumeroAsync(uint idEmpresa)
     {
         var existentes = await _context.PedidosConsignacion
             .Where(p => p.IdEmpresa == idEmpresa)
@@ -138,8 +151,8 @@ public class PedidosConsignacionService
     public async Task AnularPendientesAsync(string tipoOrigen, uint idOrigen)
     {
         var pendientes = await _context.PedidosConsignacion
-            .Where(p => p.Activo && p.TipoOrigen == tipoOrigen && p.IdOrigen == idOrigen
-                        && p.Estado == Pendiente && p.IdDocumentoFactura == null)
+            .Where(p => p.Activo && p.TipoOrigen == tipoOrigen && p.IdOrigen == idOrigen)
+            .Where(NoCerrado)
             .ToListAsync();
         foreach (var p in pendientes) p.Activo = false;
         if (pendientes.Count > 0) await _context.SaveChangesAsync();
@@ -149,8 +162,8 @@ public class PedidosConsignacionService
     // solicitudes que le quedan; sin ninguna, el pedido deja de existir.
     public async Task RefrescarPedidoDeSolicitudesAsync(uint idPedido)
     {
-        var pedido = await _context.PedidosConsignacion.Include(p => p.Detalles).FirstOrDefaultAsync(p => p.Id == idPedido);
-        if (pedido == null || pedido.Estado != Pendiente || pedido.IdDocumentoFactura != null) return;
+        var pedido = await _context.PedidosConsignacion.Include(p => p.Detalles).Include(p => p.Ordenes).FirstOrDefaultAsync(p => p.Id == idPedido);
+        if (pedido == null || pedido.Estado != Pendiente || pedido.Ordenes.Count > 0 || pedido.IdPedidoDividido != null) return;
         var solicitudes = await _context.SolicitudesProduccion.Where(s => s.Activo && s.IdPedido == idPedido).ToListAsync();
         _context.PedidosConsignacionDetalle.RemoveRange(pedido.Detalles);
         if (solicitudes.Count == 0) pedido.Activo = false;

@@ -39,9 +39,14 @@ export const getPedimentosPorProducto = (codigoProducto) =>
 export const traspasoResguardo = (datos) => api.post('/UbicacionProducto/traspaso-resguardo', datos)
 
 // Historial de un producto dentro de una empresa de resguardo (todos sus lotes).
-export const getHistorialResguardo = (idEmpresa, codigoProducto) =>
-  api.get(`/UbicacionProducto/resguardo/${idEmpresa}/historial/${encodeURIComponent(codigoProducto)}`)
+// Llega por páginas (del movimiento más reciente al más viejo): { total, pagina, porPagina, movimientos }.
+export const getHistorialResguardo = (idEmpresa, codigoProducto, pagina = 1, porPagina = 20) =>
+  api.get(`/UbicacionProducto/resguardo/${idEmpresa}/historial/${encodeURIComponent(codigoProducto)}`, {
+    params: { pagina, porPagina },
+  })
 
-// Historial de un artículo dentro de una empresa (consignación o resguardo): todos sus lotes juntos.
-export const getHistorialEmpresa = (idEmpresa, codigoProducto) =>
-  api.get(`/UbicacionProducto/empresa/${idEmpresa}/historial/${encodeURIComponent(codigoProducto)}`)
+// Historial de un artículo dentro de una empresa (consignación o resguardo): todos sus lotes juntos, por páginas.
+export const getHistorialEmpresa = (idEmpresa, codigoProducto, pagina = 1, porPagina = 20) =>
+  api.get(`/UbicacionProducto/empresa/${idEmpresa}/historial/${encodeURIComponent(codigoProducto)}`, {
+    params: { pagina, porPagina },
+  })
