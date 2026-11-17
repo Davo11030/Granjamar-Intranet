@@ -52,11 +52,13 @@ export default function VentaForm({ modo }) {
   const [idCliente, setIdCliente] = useState(null)
   const [sugerencias, setSugerencias] = useState([])
 
-  const [recoleccion, setRecoleccion] = useState('Inmediata')
+  // Descuento (%) al final de la cuenta (ventas de mostrador): ya no se descuenta renglón por renglón.
+  const [descuento, setDescuento] = useState('')
   const [fecha, setFecha] = useState(fechaHoy())
   const [hora, setHora] = useState(new Date().toTimeString().slice(0, 5))
   const [estado, setEstado] = useState(esMayoreo ? 'Programada' : 'Pendiente entrega')
 
+  const [modalDescuento, setModalDescuento] = useState(false) // confirmar el descuento antes de cerrar la venta
   const [modalEntrega, setModalEntrega] = useState(false)
   const [lugarEntrega, setLugarEntrega] = useState('Mostrador')
   const [modalPago, setModalPago] = useState(false)
@@ -115,7 +117,10 @@ export default function VentaForm({ modo }) {
   const agregarFila = () => setArticulos((p) => [...p, { ...FILA_VACIA }])
   const quitarFila = (i) => setArticulos((p) => (p.length === 1 ? p : p.filter((_, idx) => idx !== i)))
 
-  const total = useMemo(() => articulos.reduce((s, a) => s + (a.importe || 0), 0), [articulos])
+  const subtotal = useMemo(() => articulos.reduce((s, a) => s + (a.importe || 0), 0), [articulos])
+  const descuentoPct = esMayoreo ? 0 : Math.min(100, Math.max(0, Number(descuento) || 0))
+  const montoDescuento = Math.round(subtotal * descuentoPct) / 100
+  const total = Math.round((subtotal - montoDescuento) * 100) / 100
   const cambio = Number(efectivoRecibido || 0) - total
   const piezasCambio = useMemo(() => desgloseCambio(Math.max(0, cambio)), [cambio])
 
@@ -147,6 +152,7 @@ export default function VentaForm({ modo }) {
     const msg = validar()
     if (msg) return toast.advertencia(msg)
     if (esMayoreo) setModalPago(true)
+    else if (descuentoPct > 0) setModalDescuento(true) // un descuento siempre se confirma antes de seguir
     else setModalEntrega(true)
   }
 
@@ -165,7 +171,10 @@ export default function VentaForm({ modo }) {
           setGuardando(false)
           return setError(`Stock insuficiente para ${art.codigo}`)
         }
-        detalles.push(...sel)
+        // El precio queda guardado en la venta (con el descuento del renglón, si lo hay) para que no cambie si después se
+        // modifica el precio del producto.
+        const precioKilo = Math.round(Number(art.precioKilo || 0) * (1 - Number(art.desc || 0) / 100) * 100) / 100
+        detalles.push(...sel.map((x) => ({ ...x, precioKilo })))
       }
 
       const [fp, le, er] = await Promise.all([
@@ -178,9 +187,10 @@ export default function VentaForm({ modo }) {
       const idLugarEntrega = esMayoreo
         ? null
         : await idCatalogo(le.data, lugarEntrega, crearLugarEntrega)
+      // El estado de recolección no se usa por ahora: las ventas de mostrador ya no lo llevan.
       const idEstadoRecoleccion = esMayoreo
         ? await idCatalogo(er.data, 'Pendiente', crearEstadoRecoleccion, 'descripcion')
-        : await idCatalogo(er.data, recoleccion, crearEstadoRecoleccion, 'descripcion')
+        : null
 
       await crearVenta({
         idUsuario: usuario?.id,
@@ -189,6 +199,7 @@ export default function VentaForm({ modo }) {
         idLugarEntrega,
         idEstadoRecoleccion,
         total,
+        descuento: descuentoPct > 0 ? descuentoPct : null,
         efectivoRecibido: tipoPago === 'Efectivo' ? Number(efectivoRecibido || 0) : null,
         estado,
         detalles,
@@ -273,22 +284,7 @@ export default function VentaForm({ modo }) {
                 </select>
               </label>
             </div>
-          ) : (
-            <div className="rounded-xl px-4 py-2" style={{ backgroundColor: 'var(--color-pill)' }}>
-              <p className="text-sm font-semibold mb-1">Recoleccion:</p>
-              {['Inmediata', 'Pendiente'].map((r) => (
-                <label key={r} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="radio"
-                    name="recoleccion"
-                    checked={recoleccion === r}
-                    onChange={() => setRecoleccion(r)}
-                  />
-                  {r}
-                </label>
-              ))}
-            </div>
-          )}
+          ) : null}
 
           <AgregarBoton onClick={agregarFila}>Articulo</AgregarBoton>
         </div>
@@ -307,7 +303,7 @@ export default function VentaForm({ modo }) {
                 <th>Descripcion</th>
                 <th className="text-right">Kilos x Caja</th>
                 <th className="text-right">Precio x Kilo</th>
-                <th className="text-right">Desc %</th>
+                {esMayoreo && <th className="text-right">Desc %</th>}
                 <th className="text-right">Precio x caja</th>
                 <th className="text-right">Cant. Kilos</th>
                 <th className="text-right">Importe</th>
@@ -353,16 +349,18 @@ export default function VentaForm({ modo }) {
                     </td>
                     <td className="text-right text-sm">{n3(art.kilosCaja)}</td>
                     <td className="text-right text-sm">{money(art.precioKilo)}</td>
-                    <td className="text-right">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        className="w-16 rounded border border-gray-300 px-2 py-1 text-right"
-                        value={art.desc}
-                        onChange={(e) => setFila(i, { desc: e.target.value })}
-                      />
-                    </td>
+                    {esMayoreo && (
+                      <td className="text-right">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          className="w-16 rounded border border-gray-300 px-2 py-1 text-right"
+                          value={art.desc}
+                          onChange={(e) => setFila(i, { desc: e.target.value })}
+                        />
+                      </td>
+                    )}
                     <td className="text-right text-sm">{money(art.precioCaja)}</td>
                     <td className="text-right text-sm font-medium">{n3(art.cantKilos)}</td>
                     <td className="text-right font-semibold text-marca">{money(art.importe)}</td>
@@ -383,7 +381,30 @@ export default function VentaForm({ modo }) {
         </div>
 
         {/* Total + acciones */}
-        <div className="mt-6 flex flex-wrap items-center justify-end gap-4">
+        <div className="mt-6 flex flex-wrap items-end justify-end gap-x-8 gap-y-4">
+          {!esMayoreo && (
+            <div className="flex flex-col items-end gap-2 text-sm font-semibold text-gray-600">
+              <span>
+                Subtotal <span className="ml-2 text-base text-gray-800">{money(subtotal)}</span>
+              </span>
+              <label className="flex items-center gap-2">
+                Descuento %
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="any"
+                  className="w-20 rounded border border-gray-300 px-2 py-1 text-right text-gray-800"
+                  value={descuento}
+                  onChange={(e) => {
+                    setDescuento(e.target.value)
+                    setError('')
+                  }}
+                />
+                {descuentoPct > 0 && <span className="text-base text-red-600">−{money(montoDescuento)}</span>}
+              </label>
+            </div>
+          )}
           <span className="text-2xl font-extrabold">
             <span style={{ color: 'var(--color-cancelar)' }}>Total </span>
             <span className="text-teal">{money(total)}</span>
@@ -396,6 +417,39 @@ export default function VentaForm({ modo }) {
           </button>
         </div>
       </div>
+
+      {/* Confirmación del descuento (solo mostrador) */}
+      <Modal abierto={modalDescuento} onCerrar={() => setModalDescuento(false)} ancho="max-w-sm" titulo="Confirmar descuento">
+        <p className="text-sm text-gray-600">Vas a cerrar esta venta con un descuento. Revisa que sea correcto:</p>
+        <dl className="mt-4 space-y-2 text-sm">
+          <div className="flex justify-between">
+            <dt className="text-gray-500">Subtotal</dt>
+            <dd className="font-semibold">{money(subtotal)}</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-gray-500">Descuento ({descuentoPct}%)</dt>
+            <dd className="font-semibold text-red-600">−{money(montoDescuento)}</dd>
+          </div>
+          <div className="flex justify-between border-t border-gray-200 pt-2 text-base">
+            <dt className="font-bold">Total a cobrar</dt>
+            <dd className="font-extrabold text-teal">{money(total)}</dd>
+          </div>
+        </dl>
+        <div className="mt-6 flex gap-3">
+          <button className="gm-btn-cancelar flex-1" onClick={() => setModalDescuento(false)}>
+            Corregir
+          </button>
+          <button
+            className="gm-btn-guardar flex-1"
+            onClick={() => {
+              setModalDescuento(false)
+              setModalEntrega(true)
+            }}
+          >
+            Confirmar descuento
+          </button>
+        </div>
+      </Modal>
 
       {/* Modal entrega (solo mostrador) */}
       <Modal abierto={modalEntrega} onCerrar={() => setModalEntrega(false)} variante="cyan" ancho="max-w-sm" titulo="Entrega:">

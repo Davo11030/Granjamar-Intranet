@@ -467,7 +467,16 @@ export default function Solicitud() {
     )
 
   const pedidoDe = (bloque, clave) => bloque.pedidos.find((p) => p.clave === clave)
+  // Producto de PESO VARIADO (sin peso por caja): no se sabe cuánto pesa cada caja, así que los kilos no salen de las
+  // cajas de las tarimas ni se exige completar lo que pidió la requisición.
+  const esVariable = (pedido) => !!pedido && !(pedido.pesoCaja > 0)
   const kilosDe = (bloque, f) => {
+    const pedidoVar = pedidoDe(bloque, f.clave)
+    if (esVariable(pedidoVar)) {
+      // Lo que se personalizó por lote, o si no, lo que pidió la requisición (se reparte entre los lotes marcados).
+      if (f.repartoManual) return Object.values(f.repartoManual).reduce((s, k) => s + (Number(k) || 0), 0)
+      return pedidoVar.kilosPedidos
+    }
     // Lo que cuentan las tarimas capturadas (cajas × peso de caja) — se recalcula en cuanto se
     // cambia una tarima, también en una fila ya guardada. Única excepción: una solicitud guardada
     // antes de registrar las tarimas se reabre con "tarimas" reconstruidas de los renglones por
@@ -565,6 +574,20 @@ export default function Solicitud() {
     // algo y al lote le queda stock, se agrega un renglón EXTRA con exactamente lo que falte —
     // así el mismo lote puede cumplir todo el requerimiento él solo (cajas enteras + el
     // remanente) sin necesidad de abrir un lote distinto, cuando alcanza para eso.
+    if (esVariable(pedido)) {
+      // Kilos corridos (no cajas enteras): de los lotes marcados, el de menor cantidad primero.
+      let restante = pedido.kilosPedidos
+      const repartoVar = []
+      for (const u of lotesMarcadosOrdenados(bi, bloque, f, pedido)) {
+        if (restante <= 0.0001) break
+        const tomar = Math.min(Math.max(u.cantidadKilos, 0), restante)
+        if (tomar > 0) {
+          repartoVar.push({ ...u, kilosTomados: tomar })
+          restante -= tomar
+        }
+      }
+      return { reparto: repartoVar, faltante: Math.max(0, restante) }
+    }
     const pesoCaja = pedido?.pesoCaja || 0
     if (!pesoCaja) return { reparto: [], faltante: necesarios }
     const cajasPedidas = f.grupos.reduce((s, g) => s + Number(g.numTarimas || 0) * Number(g.cajasPorTarima || 0), 0)
@@ -648,13 +671,30 @@ export default function Solicitud() {
           return toast.advertencia(
             `${pedido?.codigo || f.codigo} (Destino: ${bloque.destino}): el número de tarimas debe ser un entero`,
           )
+        const variable = esVariable(pedido)
         const asignado = kilosDe(bloque, f)
-        if (pedido && asignado > pedido.kilosPedidos + 0.01) {
+        if (!variable && pedido && asignado > pedido.kilosPedidos + 0.01) {
           return toast.advertencia(
             `${pedido.codigo} (Destino: ${bloque.destino}): asignaste ${n3(asignado)} kg pero la requisición solo pidió ${n3(pedido.kilosPedidos)} kg`,
           )
         }
         const { reparto, faltante } = repartoDe(bloque.bi, bloque, f)
+        if (variable) {
+          // Peso variado: sin restricción de completar los kilos pedidos; cada lote lleva sus kilos reales.
+          if (reparto.length === 0)
+            return toast.advertencia(`${pedido.codigo} (Destino: ${bloque.destino}): los lotes marcados no tienen kilos disponibles`)
+          detalles.push(
+            ...reparto.map((r) => ({
+              idExistencia: r.idExistencia,
+              numTarimas: 1,
+              cajasPorTarima: 1,
+              kilos: r.kilosTomados,
+              idDireccion: pedido.idDireccion,
+              loteEspecificaciones: f.loteEspecificaciones || null,
+            })),
+          )
+          continue
+        }
         if (faltante > 0.01) {
           return toast.advertencia(
             `${pedido?.codigo || f.codigo} (Destino: ${bloque.destino}): los lotes marcados no alcanzan — faltan ${n3(faltante)} kg`,
@@ -729,7 +769,12 @@ export default function Solicitud() {
         (g) => g.cantidadKilos > 0 || Number(valoresPersonalizar[g.lote]) > 0,
       )
     : []
-  const necesariosPersonalizando = filaPersonalizando ? kilosDe(bloquePersonalizando, filaPersonalizando) : 0
+  const variablePersonalizando = esVariable(pedidoPersonalizando)
+  const necesariosPersonalizando = filaPersonalizando
+    ? variablePersonalizando
+      ? pedidoPersonalizando.kilosPedidos
+      : kilosDe(bloquePersonalizando, filaPersonalizando)
+    : 0
   const totalPersonalizando = Object.values(valoresPersonalizar).reduce((s, v) => s + (Number(v) || 0), 0)
 
   return (
@@ -777,7 +822,8 @@ export default function Solicitud() {
                   {bloque.filas.map((f, fi) => {
                     const pedido = pedidoDe(bloque, f.clave)
                     const asignado = kilosDe(bloque, f)
-                    const excede = pedido != null && asignado > pedido.kilosPedidos + 0.01
+                    const variable = esVariable(pedido)
+                    const excede = !variable && pedido != null && asignado > pedido.kilosPedidos + 0.01
                     const { reparto, faltante } = repartoDe(bi, bloque, f)
                     const faltaLote = f.lotesSeleccionados.length > 0 && faltante > 0.01
                     const completo = f.lotesSeleccionados.length > 0 && faltante <= 0.01 && asignado > 0
@@ -814,7 +860,10 @@ export default function Solicitud() {
                           )}
                           {/* Cuánto falta (o sobra) para llegar a lo que pidió la requisición, en
                               cuanto se captura una tarima — en kilos y en cajas. */}
-                          {pedido && f.estado !== 'eliminado' && (
+                          {variable && f.estado !== 'eliminado' && (
+                            <span className="mt-0.5 block text-xs font-semibold text-gray-400">Peso variado: sin restricción de kilos</span>
+                          )}
+                          {pedido && !variable && f.estado !== 'eliminado' && (
                             <span
                               className={`mt-0.5 block text-xs font-semibold ${
                                 Math.abs(pedido.kilosPedidos - asignado) <= 0.01
@@ -987,7 +1036,9 @@ export default function Solicitud() {
                                 )}
                               {faltaLote && (
                                 <span className="mt-1 block text-xs font-semibold text-amber-600">
-                                  Faltan {n3(faltante)} kg — marca otro lote
+                                  {variable
+                                    ? `Los lotes marcados solo tienen ${n3(pedido.kilosPedidos - faltante)} kg (se pidieron ${n3(pedido.kilosPedidos)})`
+                                    : `Faltan ${n3(faltante)} kg — marca otro lote`}
                                 </span>
                               )}
                             </>
@@ -1109,7 +1160,10 @@ export default function Solicitud() {
         {filaPersonalizando && (
           <>
             <p className="mb-3 text-sm text-gray-500">
-              {pedidoPersonalizando?.codigo} — se necesitan {n3(necesariosPersonalizando)} kg
+              {pedidoPersonalizando?.codigo} —{' '}
+              {variablePersonalizando
+                ? `peso variado: se pidieron ${n3(necesariosPersonalizando)} kg; captura los kilos reales de cada lote (sin límite de completar lo pedido)`
+                : `se necesitan ${n3(necesariosPersonalizando)} kg`}
             </p>
             <div className="space-y-2">
               {lotesPersonalizando.map((g) => (
@@ -1134,7 +1188,7 @@ export default function Solicitud() {
             </div>
             <div
               className={`mt-3 text-right text-sm font-semibold ${
-                Math.abs(totalPersonalizando - necesariosPersonalizando) < 0.01 ? 'text-teal' : 'text-cancelar'
+                variablePersonalizando ? 'text-gray-600' : Math.abs(totalPersonalizando - necesariosPersonalizando) < 0.01 ? 'text-teal' : 'text-cancelar'
               }`}
             >
               Total: {n3(totalPersonalizando)} / {n3(necesariosPersonalizando)} kg

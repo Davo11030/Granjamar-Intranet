@@ -22,6 +22,7 @@ public class CrearVentaDto
     public uint? IdEstadoRecoleccion { get; set; }
     public uint IdUsuario { get; set; }
     public decimal Total { get; set; }
+    public decimal? Descuento { get; set; }
     public decimal? EfectivoRecibido { get; set; }
     public string? Estado { get; set; }
     public List<CrearDetalleVentaDto> Detalles { get; set; } = new();
@@ -39,6 +40,7 @@ public class CrearDetalleVentaDto
 {
     public uint IdExistencia { get; set; }
     public decimal Kilos { get; set; }
+    public decimal? PrecioKilo { get; set; }
     public uint IdDireccion { get; set; }
     public uint? IdDepartamento { get; set; }
 }

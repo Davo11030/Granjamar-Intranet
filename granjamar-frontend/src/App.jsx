@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import RutaAdmin from './components/RutaAdmin'
@@ -8,7 +8,6 @@ import Inventario from './pages/inventario/Inventario'
 import Conpaq from './pages/inventario/Conpaq'
 import Pedimentos from './pages/pedimentos/pedimentos'
 import Produccion from './pages/produccion/Produccion'
-import ProduccionReportes from './pages/produccion/ProduccionReportes'
 import ProduccionForm from './pages/produccion/ProduccionForm'
 import Entradas from './pages/entradas/Entradas'
 import EntradaNacional from './pages/entradas/Nacional'
@@ -56,7 +55,7 @@ export default function App() {
           <Route path="/inventario/consignacion/:idEmpresa" element={<ProtectedRoute permiso={['inventario','ver']}><InventarioConsignacion /></ProtectedRoute>} />
           <Route path="/pedimentos" element={<ProtectedRoute permiso={['documentos','ver']}><Pedimentos /></ProtectedRoute>} />
           <Route path="/produccion" element={<ProtectedRoute permiso={['produccion','ver']}><Produccion /></ProtectedRoute>} />
-          <Route path="/produccion/reportes" element={<ProtectedRoute permiso={['produccion','ver']}><ProduccionReportes /></ProtectedRoute>} />
+          <Route path="/produccion/reportes" element={<Navigate to="/produccion" replace />} />
           <Route path="/produccion/nueva" element={<ProtectedRoute permiso={['produccion','crear']}><ProduccionForm modo="nuevo" /></ProtectedRoute>} />
           <Route path="/produccion/:id" element={<ProtectedRoute permiso={['produccion','ver']}><ProduccionForm modo="ver" /></ProtectedRoute>} />
           <Route path="/produccion/:id/editar" element={<ProtectedRoute permiso={['produccion','editar']}><ProduccionForm modo="editar" /></ProtectedRoute>} />

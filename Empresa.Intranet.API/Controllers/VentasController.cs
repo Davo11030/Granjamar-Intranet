@@ -110,6 +110,27 @@ public class VentasController : ControllerBase
 
         if (v == null) return NotFound();
 
+        // Cada renglón con su producto, descripción y lote (no solo el id de la existencia), para poder ver qué se vendió.
+        var detallesOrdenados = v.HistorialMovimiento!.DetallesMovimiento.OrderBy(d => d.Id).ToList();
+        var lineas = new List<object>();
+        foreach (var d in detallesOrdenados)
+        {
+            var l = await AuditoriaDetalles.LineaAsync(_context, d);
+            lineas.Add(new
+            {
+                d.Id,
+                d.IdExistencia,
+                Producto = l.GetValueOrDefault("Producto"),
+                Descripcion = l.GetValueOrDefault("Descripcion"),
+                Lote = l.GetValueOrDefault("Lote"),
+                d.Kilos,
+                d.Saldo,
+                // El precio con el que se vendió (queda fijo aunque después cambie el del producto) y su importe.
+                d.PrecioKilo,
+                Importe = d.PrecioKilo != null ? Math.Round(d.Kilos * d.PrecioKilo.Value, 2) : (decimal?)null
+            });
+        }
+
         return Ok(new
         {
             v.Id,
@@ -120,15 +141,10 @@ public class VentasController : ControllerBase
             v.HistorialMovimiento!.FechaRegistro,
             Usuario = v.HistorialMovimiento.Usuario.Nombre,
             v.Total,
+            v.Descuento,
             v.EfectivoRecibido,
             v.Estado,
-            Detalles = v.HistorialMovimiento.DetallesMovimiento.Select(d => new
-            {
-                d.Id,
-                d.IdExistencia,
-                d.Kilos,
-                d.Saldo
-            })
+            Detalles = lineas
         });
     }
 
@@ -138,6 +154,8 @@ public class VentasController : ControllerBase
     {
         if (dto.Detalles.Count == 0) return "Agrega al menos un producto";
         if (dto.Total < 0) return "El total de la venta no puede ser negativo";
+        if (dto.Descuento is < 0 or > 100) return "El descuento debe estar entre 0 y 100 %";
+        if (dto.Detalles.Any(d => d.PrecioKilo < 0)) return "El precio por kilo no puede ser negativo";
         if (dto.Detalles.Any(d => d.Kilos <= 0)) return "Los kilos de cada producto deben ser mayores a 0";
         return null;
     }
@@ -191,6 +209,7 @@ public class VentasController : ControllerBase
                 IdHistorial = historial.Id,
                 IdExistencia = detalle.IdExistencia,
                 Kilos = detalle.Kilos,
+                PrecioKilo = detalle.PrecioKilo,
                 IdTipoMovimiento = tipoMovimiento.Id,
                 IdDireccion = detalle.IdDireccion,
                 IdDepartamento = detalle.IdDepartamento
@@ -209,6 +228,7 @@ public class VentasController : ControllerBase
             IdLugarEntrega = dto.IdLugarEntrega,
             IdEstadoRecoleccion = dto.IdEstadoRecoleccion,
             Total = dto.Total,
+            Descuento = dto.Descuento is > 0 ? dto.Descuento : null,
             EfectivoRecibido = dto.EfectivoRecibido,
             Estado = string.IsNullOrWhiteSpace(dto.Estado) ? "Pendiente entrega" : dto.Estado
         };
@@ -287,6 +307,7 @@ public class VentasController : ControllerBase
                 IdHistorial = venta.HistorialMovimiento.Id,
                 IdExistencia = detalle.IdExistencia,
                 Kilos = detalle.Kilos,
+                PrecioKilo = detalle.PrecioKilo,
                 IdTipoMovimiento = tipoMovimiento.Id,
                 IdDireccion = detalle.IdDireccion,
                 IdDepartamento = detalle.IdDepartamento
@@ -302,6 +323,7 @@ public class VentasController : ControllerBase
         venta.IdLugarEntrega = dto.IdLugarEntrega;
         venta.IdEstadoRecoleccion = dto.IdEstadoRecoleccion;
         venta.Total = dto.Total;
+        venta.Descuento = dto.Descuento is > 0 ? dto.Descuento : null;
         venta.EfectivoRecibido = dto.EfectivoRecibido;
         if (!string.IsNullOrWhiteSpace(dto.Estado)) venta.Estado = dto.Estado;
         venta.HistorialMovimiento.IdUsuario = this.IdUsuarioActual();

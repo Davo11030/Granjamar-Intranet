@@ -151,6 +151,15 @@ export async function descargarCiegoExcel(datos) {
         celda.alignment = { horizontal: 'center', vertical: 'middle', shrinkToFit: true }
       })
     }
+    if (datos.configuracion?.Nota) {
+      f += 1
+      ws.mergeCells(`A${f}:E${f}`)
+      const n = ws.getCell(`A${f}`)
+      n.value = String(datos.configuracion.Nota)
+      n.font = { name: 'Arial', size: 8, color: { argb: 'FF5A5A5A' } }
+      n.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
+      ws.getRow(f).height = 24
+    }
     if (paginas.length > 1) {
       f += 1
       const c = ws.getCell(`E${f}`)

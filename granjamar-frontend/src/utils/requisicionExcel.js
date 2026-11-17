@@ -187,8 +187,9 @@ export async function descargarRequisicionExcel(datos, destino) {
       poner(2, f, 4, f, mayus(r?.descripcion), { borde: 'caja', relleno: rellenoVacio })
       poner(5, f, 5, f, mayus(r?.marca), { alinear: 'center', borde: 'caja', relleno: rellenoVacio, ajustar: true, tam: 8 })
       poner(6, f, 6, f, r?.medida, { alinear: 'center', borde: 'caja', relleno: rellenoVacio })
-      poner(7, f, 7, f, r?.pesoCaja ?? null, { alinear: 'center', borde: 'caja', relleno: rellenoVacio })
-      poner(8, f, 8, f, r?.cajas ?? null, { alinear: 'center', borde: 'caja', relleno: rellenoVacio })
+      // Producto de peso variado: "PESO VARIADO" en el peso por caja y un guion en las cajas (solo kilos).
+      poner(7, f, 7, f, r?.pesoVariado ? 'PESO VARIADO' : r?.pesoCaja ?? null, { alinear: 'center', borde: 'caja', relleno: rellenoVacio, ajustar: !!r?.pesoVariado, tam: r?.pesoVariado ? 8 : undefined })
+      poner(8, f, 8, f, r?.pesoVariado ? '-' : r?.cajas ?? null, { alinear: 'center', borde: 'caja', relleno: rellenoVacio })
       poner(9, f, 9, f, r ? Number(r.kilos) : null, { negrita: true, alinear: 'center', borde: 'caja', formato: '#,##0.00' })
     }
     const subtotal = hoja.productos.reduce((s, r) => s + Number(r.kilos || 0), 0)
@@ -251,7 +252,15 @@ export async function descargarRequisicionExcel(datos, destino) {
     })
     f += 7
     poner(1, f, 2, f, 'OBSERVACIONES:', { negrita: true })
-    for (let i = 0; i < 4; i++) poner(3, f + i, 9, f + i, '', { borde: 'linea' })
+    // Observaciones fijas (Admin → Documentos): se reparten en los 4 renglones sin partir palabras.
+    const obs = []
+    let actual = ''
+    String(cfg.Observaciones || '').split(' ').forEach((p) => {
+      const prueba = actual ? `${actual} ${p}` : p
+      if (prueba.length > 95 && actual) { obs.push(actual); actual = p } else actual = prueba
+    })
+    if (actual) obs.push(actual)
+    for (let i = 0; i < 4; i++) poner(3, f + i, 9, f + i, obs[i] || '', { borde: 'linea', tam: 8 })
     ws.pageSetup.printArea = `A1:I${f + 3}`
   })
 

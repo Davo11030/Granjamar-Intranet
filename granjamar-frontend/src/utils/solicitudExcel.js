@@ -213,6 +213,15 @@ export async function descargarSolicitudExcel(datos) {
     alto(f, 30)
     f += 1
     ws.getCell(`B${f}`).border = { bottom: fino }
+    if (cfg.Nota) {
+      f += 1
+      ws.mergeCells(`B${f}:F${f}`)
+      const n = ws.getCell(`B${f}`)
+      n.value = String(cfg.Nota)
+      n.font = { name: 'Arial', size: 8, color: { argb: 'FF5A5A5A' } }
+      n.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true }
+      alto(f, 24)
+    }
     if (paginas.length > 1) {
       const c = ws.getCell(`F${f}`)
       c.value = `Hoja ${indice + 1} de ${paginas.length}`

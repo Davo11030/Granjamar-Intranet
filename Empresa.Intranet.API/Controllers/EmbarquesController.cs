@@ -335,8 +335,8 @@ public class EmbarquesController : ControllerBase
         {
             if (g.Key == null || !productos.TryGetValue(g.Key, out var p)) continue;
             var kilos = g.Sum(d => d.Kilos);
+            // Sin peso por caja = producto de PESO VARIADO: la hoja lo dice así y no lleva número de cajas (solo kilos).
             var peso = p.PesoCaja?.Peso ?? 0;
-            if (peso <= 0) Falta($"Peso por caja de {p.Codigo} (no se puede calcular su número de cajas)");
             var presentaciones = p.Descripciones.Select(d => d.Presentacion.Nombre).Where(n => !string.IsNullOrWhiteSpace(n));
             renglones.Add(new
             {
@@ -345,6 +345,7 @@ public class EmbarquesController : ControllerBase
                 Marca = p.Marca?.Nombre,
                 Medida = p.Talla?.Descripcion,
                 PesoCaja = peso > 0 ? peso : (decimal?)null,
+                PesoVariado = peso <= 0,
                 Cajas = peso > 0 ? Math.Round(kilos / peso, 2) : (decimal?)null,
                 Kilos = kilos
             });
@@ -706,6 +707,7 @@ public class EmbarquesController : ControllerBase
             Sello2 = sello2,
             DestinoFinal = string.Join(" / ", destinos),
             Transportista = transportista,
+            Configuracion = await _documentos.ObtenerAsync(ConfiguracionDocumentosService.Carta),
             Faltantes = faltantes
         });
     }
@@ -753,6 +755,7 @@ public class EmbarquesController : ControllerBase
             .Include(x => x.SolicitudDetalles).ThenInclude(d => d.Existencia).ThenInclude(ex => ex.DocumentoOrigen).ThenInclude(d => d!.DocumentoTipo)
             .Include(x => x.RtDetalles).ThenInclude(d => d.Documentos).ThenInclude(d => d.Documento).ThenInclude(d => d.DocumentoTipo)
             .Include(x => x.Direccion).ThenInclude(d => d!.Empresa)
+            .Include(x => x.DireccionOrigen).ThenInclude(d => d!.Empresa)
             .Include(x => x.Cliente)
             .AsSplitQuery()
             .FirstOrDefaultAsync(x => x.Id == id && x.Activo);
@@ -781,6 +784,26 @@ public class EmbarquesController : ControllerBase
         if (calle == null) Falta("Dirección del cliente");
         if (municipio == null && estado == null) Falta("Ciudad y estado del cliente");
         if (cp == null) Falta("Código postal del cliente (se captura en la dirección del destino)");
+
+        // ── Domicilio de origen: el origen que se eligió al crear el embarque (el mismo de la Requisición) ──────────────────
+        var o = e.DireccionOrigen ?? await OrigenPredeterminadoAsync();
+        var oMunicipio = Texto(o?.Municipio);
+        var oEstado = Texto(o?.Estado);
+        var origenRt = new
+        {
+            Nombre = Texto(o?.Empresa?.Nombre),
+            Rfc = Texto(o?.Empresa?.Rfc),
+            Calle = Texto(o?.DireccionTexto),
+            Ciudad = Texto(string.Join(", ", new[] { oMunicipio, oEstado }.Where(x => x != null))),
+            CodigoPostal = Texto(o?.CodigoPostal)
+        };
+        if (o == null) Falta("Origen del embarque (se elige arriba en la Requisición, junto al No. de embarque)");
+        else
+        {
+            if (origenRt.Nombre == null) Falta("Nombre de la empresa de origen");
+            if (origenRt.Calle == null) Falta("Dirección del origen");
+            if (origenRt.Ciudad == null) Falta("Ciudad y estado del origen");
+        }
 
         // ── Productos ───────────────────────────────────────────────────────────────────────────────────────────────────
         var codigos = e.SolicitudDetalles.Select(d => d.Existencia.CodigoProducto).Distinct().ToList();
@@ -852,12 +875,13 @@ public class EmbarquesController : ControllerBase
             .OrderBy(c => Array.IndexOf(orden, c.Codigo) is var i and >= 0 ? i : orden.Length).ThenBy(c => c.Codigo)
             .ToList();
 
-        var origen = await _documentos.ObtenerAsync(ConfiguracionDocumentosService.Rt);
+        var configRt = await _documentos.ObtenerAsync(ConfiguracionDocumentosService.Rt);
         return Ok(new
         {
             e.Numero,
             Fecha = e.HistorialMovimiento.FechaRegistro,
-            Configuracion = origen,
+            Configuracion = configRt,
+            Origen = origenRt,
             Cliente = new
             {
                 Nombre = nombre, Rfc = rfc, Direccion = calle,
@@ -1115,6 +1139,9 @@ public class EmbarquesController : ControllerBase
         // 2) Validar el nuevo detalle y acumular, por lote (UbicacionProducto), cuánto habría
         //    que descontar — sin tocar nada todavía.
         var kilosAsignadosPorProducto = new Dictionary<string, decimal>();
+        // Productos de PESO VARIADO (sin peso por caja): no se sabe cuánto pesa cada caja, así que no se calculan los kilos
+        // por cajas ni se exige completar los kilos que pidió la requisición; los kilos reales vienen en cada renglón.
+        var productosPesoVariado = new HashSet<string>();
         var porUbicacion = new Dictionary<uint, (UbicacionProducto ubicacion, decimal kilos)>();
         var kilosPorDetalle = new Dictionary<SolicitudDetalleDto, decimal>();
         foreach (var d in dto.Detalles)
@@ -1139,7 +1166,15 @@ public class EmbarquesController : ControllerBase
                 return BadRequest(new { mensaje = "Ese lote no tiene stock en la ubicación indicada" });
 
             decimal kilos;
-            if (d.CajaIncompleta)
+            var pesoNominal = existencia.Producto.PesoCaja?.Peso ?? 0;
+            if (!d.CajaIncompleta && pesoNominal <= 0)
+            {
+                if (d.Kilos is not > 0)
+                    return BadRequest(new { mensaje = $"{existencia.CodigoProducto} es de peso variado: indica los kilos reales a usar de cada lote" });
+                kilos = d.Kilos.Value;
+                productosPesoVariado.Add(existencia.CodigoProducto);
+            }
+            else if (d.CajaIncompleta)
             {
                 // Una caja incompleta nunca recalcula kilos por peso nominal — se usan los kilos
                 // reales que el usuario confirmó en pantalla (acotados al stock real, por si
@@ -1163,7 +1198,7 @@ public class EmbarquesController : ControllerBase
 
         foreach (var (codigo, kilos) in kilosAsignadosPorProducto)
         {
-            if (kilos > pedidosPorProducto[codigo] + 0.01m)
+            if (!productosPesoVariado.Contains(codigo) && kilos > pedidosPorProducto[codigo] + 0.01m)
                 return BadRequest(new { mensaje = $"Excede los kilos pedidos en la requisición para {codigo}" });
         }
         foreach (var (ubicacion, kilos) in porUbicacion.Values)

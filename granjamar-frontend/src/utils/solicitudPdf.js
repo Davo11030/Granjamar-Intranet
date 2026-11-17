@@ -232,6 +232,7 @@ export async function descargarSolicitudPdf(datos) {
     ].forEach((l, i) => texto(l, 405, 1144 + i * 21, { size: 8.5, align: 'left', color: VERDE, maxAncho: 294 }))
     linea(162, 1338, 291, 1338, 1)
 
+    if (cfg.Nota) texto(String(cfg.Nota), 162, 1400, { size: 7, align: 'left', color: [90, 90, 90], maxAncho: 700 })
     if (paginas.length > 1) texto(`Hoja ${indice + 1} de ${paginas.length}`, 967, 1400, { size: 7, align: 'right', color: [90, 90, 90] })
   })
 

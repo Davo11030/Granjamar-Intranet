@@ -40,15 +40,20 @@ const LISTA_2 = [
 const HOJA_2_INTRO = [
   [86.0, 'A continuación, les comparto los números de sello asignados a esta'],
 ]
-const HOJA_2_FINAL = [
-  [281.7, 'Cabe mencionar que dicha unidad de carga se encuentra'],
-  [302.8, 'monitoreada las 24 horas del día por medio de sistema gps, el cual'],
-  [323.8, 'lleva un seguimiento continuo por medio de una empresa externa.'],
-  [382.0, 'Dicho escrito se realiza con el objetivo de poder transitar de forma'],
-  [403.0, 'segura en las carreteras y espacio públicos, en condiciones de'],
-  [424.1, 'equidad, igualdad y accesibilidad para todos.'],
-  [511.4, 'Agradeciendo las atenciones de antemano quedo de Ud.'],
+// Los renglones de la base en Calibri: con ellos se calcula la letra (los textos de la hoja 2 se pueden cambiar en Admin →
+// Documentos y se acomodan solos, con la misma separación que tiene la base).
+const HOJA_2_BASE = [
+  'Cabe mencionar que dicha unidad de carga se encuentra',
+  'monitoreada las 24 horas del día por medio de sistema gps, el cual',
+  'lleva un seguimiento continuo por medio de una empresa externa.',
+  'Dicho escrito se realiza con el objetivo de poder transitar de forma',
+  'segura en las carreteras y espacio públicos, en condiciones de',
+  'equidad, igualdad y accesibilidad para todos.',
+  'Agradeciendo las atenciones de antemano quedo de Ud.',
 ]
+const PASO = 21.06 // entre renglones de un párrafo
+const ENTRE_PARRAFOS = 58.2 // del último renglón de un párrafo al primero del siguiente
+const ANTES_DE_FIRMA = 87.2
 
 export const nombreArchivoCarta = (numero) => `Carta responsiva ${numero ?? ''}`.trim()
 
@@ -58,7 +63,8 @@ export function descargarCartaPdf(datos) {
   doc.setFont('helvetica', 'normal')
 
   // La letra más grande (hasta la de la base) con la que el renglón más ancho cabe en el margen.
-  const renglones = [...PARRAFO_1, ...PARRAFO_2, ...HOJA_2_INTRO, ...HOJA_2_FINAL].map((r) => [X, r[1]])
+  const renglones = [...PARRAFO_1, ...PARRAFO_2, ...HOJA_2_INTRO].map((r) => [X, r[1]])
+  renglones.push(...HOJA_2_BASE.map((t) => [X, t]))
   renglones.push(...LISTA_1.map((r) => [X_BALA_TEXTO, r[1]]), ...LISTA_2.map((r) => [X_BALA_TEXTO, r[1]]))
   let tam = TAM_BASE
   const cabe = () => {
@@ -91,7 +97,8 @@ export function descargarCartaPdf(datos) {
   texto(fecha, 462, 81.2, { align: 'center' })
   subrayado(400, 525, 82.2)
   doc.setFontSize(tam)
-  texto('A quien corresponda:', X, 109.9)
+  const cfg = datos.configuracion || {}
+  texto(cfg.Saludo ?? 'A quien corresponda:', X, 109.9)
   bloque(PARRAFO_1)
   lista(LISTA_1)
   bloque(PARRAFO_2)
@@ -140,8 +147,21 @@ export function descargarCartaPdf(datos) {
     } else subrayado(x, x + 80, y)
   })
 
-  bloque(HOJA_2_FINAL)
-  texto(mayus(datos.transportista), CENTRO, 598.6, { align: 'center' })
+  // Párrafos de la hoja 2 (ajustables): cada uno se parte en renglones del ancho de la base y el siguiente baja lo que ocupa.
+  doc.setFontSize(tam)
+  let yP = 281.7 + baja
+  const parrafo = (t) => {
+    const lineas = doc.splitTextToSize(String(t || ''), DERECHA - X)
+    lineas.forEach((l, i) => texto(l, X, yP + i * PASO))
+    yP += Math.max(0, lineas.length - 1) * PASO
+  }
+  parrafo(cfg.Monitoreo)
+  yP += ENTRE_PARRAFOS
+  parrafo(cfg.Objetivo)
+  yP += 87.3
+  parrafo(cfg.Cierre)
+  yP += ANTES_DE_FIRMA
+  texto(mayus(cfg.Firma || datos.transportista), CENTRO, yP, { align: 'center' })
 
   const nombre = `${nombreArchivoCarta(datos.numero)}.pdf`
   doc.save(nombre)

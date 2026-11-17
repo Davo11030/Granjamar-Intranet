@@ -8,6 +8,8 @@ public class Venta
     public uint? IdCliente { get; set; }
     public uint? IdFormaPago { get; set; }
     public decimal Total { get; set; }
+    // Descuento (%) que se aplicó al final de la cuenta: Total = suma de los renglones × (1 − Descuento / 100).
+    public decimal? Descuento { get; set; }
     public decimal? EfectivoRecibido { get; set; }
     public string Estado { get; set; } = "Pendiente entrega"; // Programada | Pendiente entrega | Entregada
     public bool Activo { get; set; } = true;

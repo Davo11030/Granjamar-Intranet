@@ -10,6 +10,9 @@ public class DetalleMovimiento
     public string? CodigoProducto { get; set; }
     public uint IdHistorial { get; set; }
     public decimal Kilos { get; set; }
+    // Ventas: precio por kilo con el que se vendió (ya con el descuento del renglón, si lo hubo). Se guarda para que la
+    // venta no cambie aunque después se modifique el precio del producto. Null en movimientos que no son venta.
+    public decimal? PrecioKilo { get; set; }
     public uint IdTipoMovimiento { get; set; }
     public decimal? Saldo { get; set; }
     public uint? IdDireccion { get; set; }

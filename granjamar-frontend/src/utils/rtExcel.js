@@ -80,11 +80,12 @@ export async function descargarRtExcel(datos, destino) {
   poner(488.5, 'B', { suma: primeraFila, resultado: Number(datos.totalKilos) }, { negrita: true, alinear: 'center', formato: '#,##0' })
   poner(488.5, 'C', 'KG', { negrita: true })
   poner(502.2, 'C', 'DOMICILIO ORIGEN: ', { negrita: true })
-  poner(515.9, 'C', mayus(cfg.OrigenNombre), { italica: true, tam: 9 })
-  poner(515.9, 'F', mayus(cfg.OrigenRfc), { italica: true, tam: 9, sangria: 1 })
-  poner(529.5, 'C', mayus(cfg.OrigenCalle), { italica: true, tam: 9 })
-  poner(541, 'C', mayus(cfg.OrigenCiudad), { italica: true, tam: 9 })
-  poner(541, 'E', cfg.OrigenCp ? `CP ${cfg.OrigenCp}` : '', { italica: true, tam: 9, alinear: 'center' })
+  const origen = datos.origen || {}
+  poner(515.9, 'C', mayus(origen.nombre), { italica: true, tam: 9 })
+  poner(515.9, 'F', mayus(origen.rfc), { italica: true, tam: 9, sangria: 1 })
+  poner(529.5, 'C', mayus(origen.calle), { italica: true, tam: 9 })
+  poner(541, 'C', mayus(origen.ciudad), { italica: true, tam: 9 })
+  poner(541, 'E', origen.codigoPostal ? `CP ${origen.codigoPostal}` : '', { italica: true, tam: 9, alinear: 'center' })
 
   // Clave SAT: kilos, descripción e importe de cada una, y el total.
   poner(563.8, 'C', 'CLAVE SAT: ', { negrita: true })

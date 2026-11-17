@@ -25,6 +25,7 @@ const FILA = {
   talla: '',
   pesoCaja: 0,
   totalCajas: '',
+  kilos: '', // solo para productos de peso variado (sin peso por caja): ahí se captura la cantidad en kilos
 }
 // idEmbarque: id del embarque (destino) ya guardado que representa este grupo, o null/undefined
 // si todavía no existe (destino agregado en pantalla, se crea al guardar).
@@ -158,6 +159,7 @@ export default function Requisicion() {
             talla: p?.talla || '',
             pesoCaja: Number(p?.pesoCaja) || 0,
             totalCajas: p?.pesoCaja ? String(Math.round(Number(d.kilos || 0) / Number(p.pesoCaja))) : '',
+            kilos: p?.pesoCaja ? '' : String(Number(d.kilos || 0)),
           }
         })
       return {
@@ -179,7 +181,9 @@ export default function Requisicion() {
     })
   }, [esEdicion, embarqueData, productos])
 
-  const kilosDe = (f) => Number(f.totalCajas || 0) * Number(f.pesoCaja || 0)
+  // Un producto sin peso por caja es de PESO VARIADO: no se piden cajas, solo la cantidad de kilos.
+  const esVariable = (f) => !!f.codigo && !(Number(f.pesoCaja) > 0)
+  const kilosDe = (f) => (esVariable(f) ? Number(f.kilos || 0) : Number(f.totalCajas || 0) * Number(f.pesoCaja || 0))
   const kilosGrupo = (g) => g.filas.reduce((s, f) => s + kilosDe(f), 0)
   const totalKilos = useMemo(() => grupos.reduce((s, g) => s + kilosGrupo(g), 0), [grupos])
   const tractoSel = useMemo(() => tractos.find((t) => String(t.id) === String(idTracto)), [tractos, idTracto])
@@ -260,6 +264,7 @@ export default function Requisicion() {
       talla: p.talla || '',
       pesoCaja: Number(p.pesoCaja) || 0,
       totalCajas: '',
+      kilos: '',
       idDireccionOrigen: sugerida ? sugerida.idDireccion : null,
     })
   }
@@ -278,10 +283,10 @@ export default function Requisicion() {
         : null
 
     const gruposValidos = grupos
-      .map((g) => ({ ...g, validas: g.filas.filter((f) => f.codigo && Number(f.totalCajas) > 0) }))
+      .map((g) => ({ ...g, validas: g.filas.filter((f) => f.codigo && kilosDe(f) > 0) }))
       .filter((g) => g.validas.length > 0)
 
-    if (gruposValidos.length === 0) return toast.advertencia('Agrega al menos un producto con cajas')
+    if (gruposValidos.length === 0) return toast.advertencia('Agrega al menos un producto con cajas o kilos')
     for (const g of gruposValidos) {
       if (!g.idDestino) return toast.advertencia('Selecciona un destino para cada tabla de productos')
       for (const f of g.validas) {
@@ -474,7 +479,7 @@ export default function Requisicion() {
                         const ubicacionSel = opciones.find((u) => u.idDireccion === f.idDireccionOrigen)
                         const stockDisponible = stockDisponibleParaFila(gi, fi, f)
                         const kilosPedidos = kilosDe(f)
-                        const excede = f.codigo && f.totalCajas && kilosPedidos > stockDisponible
+                        const excede = f.codigo && kilosPedidos > 0 && kilosPedidos > stockDisponible
                         return (
                           <tr key={fi} className={excede ? 'bg-red-50' : ''}>
                             <td>
@@ -533,23 +538,43 @@ export default function Requisicion() {
                                 </div>
                               )}
                             </td>
-                            <td className="text-sm">{f.pesoCaja || '—'}</td>
+                            <td className="text-sm">{esVariable(f) ? 'Peso variado' : f.pesoCaja || '—'}</td>
                             <td>
-                              <input
-                                type="number"
-                                min="0"
-                                max={f.pesoCaja > 0 ? Math.floor(stockDisponible / f.pesoCaja) : undefined}
-                                className="w-20 text-right text-sm outline-none bg-transparent"
-                                value={f.totalCajas}
-                                onChange={(e) => setFilaEnGrupo(gi, fi, { totalCajas: e.target.value })}
-                              />
+                              {esVariable(f) ? (
+                                <span className="block text-right text-sm text-gray-400" title="Peso variado: solo se piden kilos">
+                                  -
+                                </span>
+                              ) : (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={f.pesoCaja > 0 ? Math.floor(stockDisponible / f.pesoCaja) : undefined}
+                                  className="w-20 text-right text-sm outline-none bg-transparent"
+                                  value={f.totalCajas}
+                                  onChange={(e) => setFilaEnGrupo(gi, fi, { totalCajas: e.target.value })}
+                                />
+                              )}
                               {excede && (
                                 <span className="mt-0.5 block text-right text-xs font-semibold text-cancelar">
                                   supera lo disponible
                                 </span>
                               )}
                             </td>
-                            <td className="text-sm font-semibold">{n3(kilosPedidos)}</td>
+                            <td className="text-sm font-semibold">
+                              {esVariable(f) ? (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  className="w-24 text-right text-sm font-semibold outline-none bg-transparent"
+                                  placeholder="kilos"
+                                  value={f.kilos}
+                                  onChange={(e) => setFilaEnGrupo(gi, fi, { kilos: e.target.value })}
+                                />
+                              ) : (
+                                n3(kilosPedidos)
+                              )}
+                            </td>
                             <td className="sticky right-0 w-8 !border-0 !bg-[var(--color-fondo)] align-middle">
                               <CircleBtn tipo="menos" onClick={() => quitarFila(gi, fi)} />
                             </td>

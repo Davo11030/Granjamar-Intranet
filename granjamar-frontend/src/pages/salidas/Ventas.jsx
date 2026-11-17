@@ -8,10 +8,19 @@ import Cargando from '../../components/Cargando'
 import Modal from '../../components/Modal'
 import IconoMas from '../../components/IconoMas'
 import usePaginacion from '../../hooks/usePaginacion'
-import { getVentas, cambiarEstadoVenta } from '../../api/ventas'
-import { formatearFecha, formatearHora } from '../../utils/fecha'
+import { getVentas, getVenta, cambiarEstadoVenta } from '../../api/ventas'
+import { formatearFecha, formatearHora, formatearFechaHora } from '../../utils/fecha'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
+
+// Guardado por ahora (no se aplica todavía): para volver a mostrarlo basta ponerlo en true.
+const MOSTRAR_ESTADO_RECOLECCION = false // columna "Estado recoleccion"
+const MOSTRAR_DETALLES = true // botón "Detalles": abre la venta con lo que se vendió
+const MOSTRAR_ESTADO = false // columna "Estado" (Programada / Pendiente entrega / Entregada) y botón "Marcar entregada"
+const MOSTRAR_ACCIONES = MOSTRAR_ESTADO || MOSTRAR_DETALLES
+
+const dinero = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+const kilos = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 
 const estadoClase = (estado = '') => {
   const e = estado.toLowerCase()
@@ -36,6 +45,8 @@ export default function Ventas() {
   const [menu, setMenu] = useState(false)
   const [reporte, setReporte] = useState(false)
   const [rango, setRango] = useState({ desde: '', hasta: '' })
+  const [detalle, setDetalle] = useState(null) // la venta abierta en "Detalles"
+  const [abriendo, setAbriendo] = useState(false)
   const menuRef = useRef(null)
 
   const cargar = () => {
@@ -54,11 +65,31 @@ export default function Ventas() {
     }
   }
 
+  const verDetalle = async (id) => {
+    setAbriendo(true)
+    try {
+      const { data } = await getVenta(id)
+      setDetalle(data)
+    } catch (e) {
+      toast.error(e.response?.data?.mensaje || 'No se pudo cargar la venta')
+    } finally {
+      setAbriendo(false)
+    }
+  }
+
   useEffect(() => {
     const cerrar = (e) => menuRef.current && !menuRef.current.contains(e.target) && setMenu(false)
     document.addEventListener('mousedown', cerrar)
     return () => document.removeEventListener('mousedown', cerrar)
   }, [])
+
+  // Subtotal de la venta abierta (antes del descuento): la suma de sus renglones; si alguno no trae precio (ventas
+  // anteriores), se saca del total y el descuento.
+  const subtotalDetalle = !detalle
+    ? 0
+    : (detalle.detalles || []).length > 0 && (detalle.detalles || []).every((d) => d.importe != null)
+      ? detalle.detalles.reduce((acc, d) => acc + Number(d.importe), 0)
+      : Number(detalle.total) / (1 - Number(detalle.descuento || 0) / 100)
 
   const filtrados = datos.filter((d) => (d.cliente || '').toLowerCase().includes(busqueda.toLowerCase()))
   const { datosPaginados, pagina, setPagina, total, porPagina } = usePaginacion(filtrados, 20)
@@ -127,9 +158,9 @@ export default function Ventas() {
                     <th>Nombre cliente</th>
                     <th>Forma de pago</th>
                     <th className="text-right">Total</th>
-                    <th>Estado recoleccion</th>
-                    <th>Estado</th>
-                    <th aria-hidden="true" />
+                    {MOSTRAR_ESTADO_RECOLECCION && <th>Estado recoleccion</th>}
+                    {MOSTRAR_ESTADO && <th>Estado</th>}
+                    {MOSTRAR_ACCIONES && <th aria-hidden="true" />}
                   </tr>
                 </thead>
                 <tbody>
@@ -158,39 +189,47 @@ export default function Ventas() {
                       <td className="text-right font-semibold">
                         {`$${Number(v.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`}
                       </td>
-                      <td>
-                        {v.estadoRecoleccion ? (
-                          <span className={`rounded px-3 py-1 text-sm font-medium ${estadoClase(v.estadoRecoleccion)}`}>
-                            {v.estadoRecoleccion}
+                      {MOSTRAR_ESTADO_RECOLECCION && (
+                        <td>
+                          {v.estadoRecoleccion ? (
+                            <span className={`rounded px-3 py-1 text-sm font-medium ${estadoClase(v.estadoRecoleccion)}`}>
+                              {v.estadoRecoleccion}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      )}
+                      {MOSTRAR_ESTADO && (
+                        <td>
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                              ESTADO_VENTA_CLASE[v.estado] || 'bg-gray-100 text-gray-600'
+                            }`}
+                          >
+                            {v.estado || '—'}
                           </span>
-                        ) : (
-                          '—'
-                        )}
-                      </td>
-                      <td>
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                            ESTADO_VENTA_CLASE[v.estado] || 'bg-gray-100 text-gray-600'
-                          }`}
-                        >
-                          {v.estado || '—'}
-                        </span>
-                      </td>
-                      <td className="text-right whitespace-nowrap">
-                        {v.estado !== 'Entregada' && puede('ventas', 'editar') && (
-                          <button className="gm-pill mr-2" onClick={() => marcarEntregada(v.id)}>
-                            Marcar entregada
-                          </button>
-                        )}
-                        <button className="gm-pill" onClick={() => navigate(`/salidas/ventas`)}>
-                          Detalles
-                        </button>
-                      </td>
+                        </td>
+                      )}
+                      {MOSTRAR_ACCIONES && (
+                        <td className="text-right whitespace-nowrap">
+                          {MOSTRAR_ESTADO && v.estado !== 'Entregada' && puede('ventas', 'editar') && (
+                            <button className="gm-pill mr-2" onClick={() => marcarEntregada(v.id)}>
+                              Marcar entregada
+                            </button>
+                          )}
+                          {MOSTRAR_DETALLES && (
+                            <button className="gm-pill" onClick={() => verDetalle(v.id)} disabled={abriendo}>
+                              Detalles
+                            </button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
                   {filtrados.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="text-center !py-12 text-gray-400">
+                      <td colSpan={6 + (MOSTRAR_ESTADO_RECOLECCION ? 1 : 0) + (MOSTRAR_ESTADO ? 1 : 0) + (MOSTRAR_ACCIONES ? 1 : 0)} className="text-center !py-12 text-gray-400">
                         Sin ventas registradas
                       </td>
                     </tr>
@@ -202,6 +241,108 @@ export default function Ventas() {
           </>
         )}
       </div>
+
+      <Modal abierto={!!detalle} onCerrar={() => setDetalle(null)} titulo={`Venta #${detalle?.id ?? ''}`} ancho="max-w-2xl">
+        {detalle && (
+          <>
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              <div>
+                <dt className="text-xs font-semibold text-gray-500">Fecha y hora</dt>
+                <dd>{formatearFechaHora(detalle.fechaRegistro)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold text-gray-500">Registró</dt>
+                <dd>{detalle.usuario || '—'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold text-gray-500">Cliente</dt>
+                <dd>{detalle.cliente || 'Venta mostrador'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold text-gray-500">Forma de pago</dt>
+                <dd>{detalle.formaPago || '—'}</dd>
+              </div>
+              {detalle.lugarEntrega && (
+                <div>
+                  <dt className="text-xs font-semibold text-gray-500">Lugar de entrega</dt>
+                  <dd>{detalle.lugarEntrega}</dd>
+                </div>
+              )}
+              {detalle.efectivoRecibido != null && Number(detalle.efectivoRecibido) > 0 && (
+                <>
+                  <div>
+                    <dt className="text-xs font-semibold text-gray-500">Efectivo recibido</dt>
+                    <dd>{dinero(detalle.efectivoRecibido)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-semibold text-gray-500">Cambio</dt>
+                    <dd>{dinero(Math.max(0, Number(detalle.efectivoRecibido) - Number(detalle.total)))}</dd>
+                  </div>
+                </>
+              )}
+            </dl>
+
+            <div className="mt-5 max-h-72 overflow-auto rounded-xl border border-gray-100">
+              <table className="gm-tabla">
+                <thead className="sticky top-0">
+                  <tr>
+                    <th>Codigo</th>
+                    <th>Descripcion</th>
+                    <th>Lote</th>
+                    <th className="text-right">Kilos</th>
+                    <th className="text-right">Precio x kilo</th>
+                    <th className="text-right">Importe</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(detalle.detalles || []).map((d) => (
+                    <tr key={d.id}>
+                      <td className="font-mono text-sm">{d.producto || '—'}</td>
+                      <td>{d.descripcion || '—'}</td>
+                      <td className="font-mono text-sm">{d.lote || '—'}</td>
+                      <td className="text-right">{kilos(d.kilos)}</td>
+                      <td className="text-right">{d.precioKilo != null ? dinero(d.precioKilo) : '—'}</td>
+                      <td className="text-right font-semibold">{d.importe != null ? dinero(d.importe) : '—'}</td>
+                    </tr>
+                  ))}
+                  {(detalle.detalles || []).length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="!py-8 text-center text-gray-400">
+                        Esta venta no tiene productos registrados
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 flex items-end justify-between gap-4 text-sm">
+              <span className="text-gray-500">
+                Total de kilos: <strong className="text-gray-800">{kilos((detalle.detalles || []).reduce((acc, d) => acc + Number(d.kilos || 0), 0))}</strong>
+              </span>
+              <div className="text-right">
+                {Number(detalle.descuento) > 0 && (
+                  <>
+                    <p className="text-gray-500">
+                      Subtotal: <strong className="text-gray-800">{dinero(subtotalDetalle)}</strong>
+                    </p>
+                    <p className="text-gray-500">
+                      Descuento {Number(detalle.descuento)}%:{' '}
+                      <strong className="text-red-600">−{dinero(subtotalDetalle - Number(detalle.total))}</strong>
+                    </p>
+                  </>
+                )}
+                <p className="text-lg font-bold text-teal">Total: {dinero(detalle.total)}</p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button className="gm-btn-cancelar" onClick={() => setDetalle(null)}>
+                Cerrar
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
 
       <Modal abierto={reporte} onCerrar={() => setReporte(false)} titulo="Reporte de ventas" ancho="max-w-md">
         <div className="space-y-4">

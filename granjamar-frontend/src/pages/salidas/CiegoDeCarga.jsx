@@ -82,6 +82,14 @@ export default function CiegoDeCarga() {
               const p = productos.get(t.codigoProducto)
               if (p) for (let i = 0; i < t.numTarimas; i++) p.cajasPorTarima.push(t.cajasPorTarima)
             }
+            // Producto de peso variado (sin peso por caja): las cajas no tienen un peso fijo, así que el peso de cada tarima se
+            // reparte según sus cajas sobre los kilos reales de la Solicitud.
+            for (const p of productos.values()) {
+              if (p.pesoCaja > 0) continue
+              const cajas = p.cajasPorTarima.reduce((acc, c) => acc + c, 0)
+              p.pesoVariado = true
+              p.pesoCaja = cajas > 0 ? p.kilosSolicitud / cajas : 0
+            }
 
             const total = [...productos.values()].reduce((sum, p) => sum + p.cajasPorTarima.length, 0)
             return {

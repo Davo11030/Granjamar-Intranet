@@ -238,8 +238,9 @@ export async function descargarRequisicionPdf(datos, destino) {
       enCelda(celdas.descripcion, cols[1] + 4, 'left')
       enCelda(celdas.marca, (cols[2] + cols[3]) / 2, 'center')
       texto(r.medida, (cols[3] + cols[4]) / 2, medio, { size: 6.5, align: 'center', maxAncho: cols[4] - cols[3] - 4 })
-      texto(r.pesoCaja != null ? sinCeros(r.pesoCaja) : '', (cols[4] + cols[5]) / 2, medio, { size: 6.5, align: 'center' })
-      texto(r.cajas != null ? sinCeros(r.cajas) : '', (cols[5] + cols[6]) / 2, medio, { size: 6.5, align: 'center' })
+      // Producto de peso variado: no tiene peso por caja ni número de cajas (solo kilos).
+      texto(r.pesoVariado ? 'PESO VARIADO' : r.pesoCaja != null ? sinCeros(r.pesoCaja) : '', (cols[4] + cols[5]) / 2, medio, { size: r.pesoVariado ? 5.6 : 6.5, align: 'center', maxAncho: cols[5] - cols[4] - 4 })
+      texto(r.pesoVariado ? '-' : r.cajas != null ? sinCeros(r.cajas) : '', (cols[5] + cols[6]) / 2, medio, { size: 6.5, align: 'center' })
       texto(miles(r.kilos), (cols[6] + cols[7]) / 2, medio, { size: 6.5, bold: true, align: 'center' })
       y += h
     })
@@ -296,6 +297,12 @@ export async function descargarRequisicionPdf(datos, destino) {
     })
     texto('OBSERVACIONES:', 59, 1246, { size: 6, bold: true })
     ;[1253, 1269, 1285, 1301].forEach((y) => linea(272, y, 1017, y, 0.5))
+    // Observaciones fijas (Admin → Documentos): cada renglón se escribe sobre su línea, hasta 4.
+    if (cfg.Observaciones) {
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(6.5)
+      doc.splitTextToSize(String(cfg.Observaciones), px(735)).slice(0, 4).forEach((l, i) => texto(l, 276, 1248 + i * 16, { size: 6.5 }))
+    }
   })
 
   const nombre = `${nombreArchivoRequisicion(datos.numero, destino)}.pdf`

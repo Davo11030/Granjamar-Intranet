@@ -204,6 +204,7 @@ export async function descargarCiegoPdf(datos) {
       texto(miles(datos.totalKilos), (COLS[3] + COLS[4] + 12) / 2, y + ALTO_TOTAL / 2, { size: 12, bold: true, maxAncho: COLS[4] - COLS[3] + 6 })
     }
 
+    if (datos.configuracion?.Nota) texto(String(datos.configuracion.Nota), COLS[0], 826, { size: 7, align: 'left', color: [90, 90, 90], maxAncho: COLS[4] - COLS[0] })
     if (paginas.length > 1) texto(`Hoja ${indice + 1} de ${paginas.length}`, COLS[5], 826, { size: 7, align: 'right' })
   })
 

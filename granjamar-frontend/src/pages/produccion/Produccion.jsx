@@ -10,6 +10,7 @@ import { useToast } from '../../context/ToastContext'
 import { getProductos, getUbicaciones } from '../../api/inventario'
 import { getEmpresas } from '../../api/destinos'
 import { getInventarioProduccion, guardarInventarioProduccion } from '../../api/produccion'
+import ListaReportes from './ListaReportes'
 import { fechaHoy } from '../../utils/fecha'
 import {
   idsEmpresaPermitidos,
@@ -23,6 +24,14 @@ const EPS = 0.001
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 const num = (v) => Number(v) || 0
 const claveUbicacion = (idExistencia, idDireccion) => `${idExistencia}|${idDireccion}`
+
+// Lo que se guarda de la tabla (solo los renglones con entrada o salida): sirve para saber si algo cambió.
+const firma = (lista) =>
+  JSON.stringify(
+    lista
+      .filter((f) => num(f.entrada) > 0 || num(f.salida) > 0)
+      .map((f) => [f.id, f.codigo, f.idExistencia, f.idDireccion, num(f.entrada), num(f.salida)]),
+  )
 
 let contador = 0
 const FILA = () => ({
@@ -53,6 +62,7 @@ export default function Produccion() {
   const [empresas, setEmpresas] = useState([])
   const [desbloqueado, setDesbloqueado] = useState({})
   const [filas, setFilas] = useState([])
+  const [original, setOriginal] = useState('') // cómo quedó la tabla al cargarla o guardarla: el botón Guardar solo sale si cambia
   const [cargando, setCargando] = useState(true)
   const [guardando, setGuardando] = useState(false)
 
@@ -67,14 +77,14 @@ export default function Produccion() {
     return getInventarioProduccion(fecha)
       .then((r) => {
         setDesbloqueado(r.data.desbloqueado || {})
-        setFilas(
-          (r.data.filas || []).map((x) => ({
+        const cargadas = (r.data.filas || []).map((x) => ({
             ...FILA(), id: x.id, codigo: x.codigo, articulo: x.articulo || '', idExistencia: x.idExistencia, idDireccion: x.idDireccion,
             lote: x.lote || '', esConsignacion: !!x.esConsignacion,
             inicial: num(x.inicial), entrada: num(x.entrada) > 0 ? String(x.entrada) : '', salida: num(x.salida) > 0 ? String(x.salida) : '',
             guardadaEntrada: x.esConsignacion ? 0 : num(x.entrada), bloqueada: !!x.bloqueada, numeroPedido: x.numeroPedido,
-          })),
-        )
+          }))
+        setFilas(cargadas)
+        setOriginal(firma(cargadas))
       })
       .catch((e) => toast.error(e.response?.data?.mensaje || 'No se pudo cargar la tabla de producción'))
       .finally(() => setCargando(false))
@@ -167,9 +177,6 @@ export default function Produccion() {
             <input type="date" className="gm-input-amarillo w-44" value={fecha} onChange={(e) => e.target.value && setFecha(e.target.value)} />
           </label>
           <div className="flex gap-2">
-            <button className="gm-pill" onClick={() => navigate('/produccion/reportes')}>
-              Reportes diarios
-            </button>
             {puede('produccion', 'crear') && (
               <button className="gm-pill" onClick={() => navigate('/produccion/nueva')}>
                 Nuevo reporte
@@ -317,7 +324,7 @@ export default function Produccion() {
               </p>
             )}
 
-            {puedeEditar && (
+            {puedeEditar && firma(filas) !== original && (
               <div className="mt-8 flex justify-end">
                 <button className="gm-btn-guardar" onClick={guardar} disabled={guardando}>
                   {guardando ? 'Guardando…' : 'Guardar'}
@@ -326,6 +333,8 @@ export default function Produccion() {
             )}
           </>
         )}
+
+        <ListaReportes />
       </div>
     </Layout>
   )

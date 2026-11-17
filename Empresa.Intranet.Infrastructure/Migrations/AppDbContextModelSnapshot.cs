@@ -325,6 +325,10 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                         .HasPrecision(18, 3)
                         .HasColumnType("decimal(18,3)");
 
+                    b.Property<decimal?>("PrecioKilo")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<decimal?>("Saldo")
                         .HasPrecision(18, 3)
                         .HasColumnType("decimal(18,3)");
@@ -1554,6 +1558,10 @@ namespace Empresa.Intranet.Infrastructure.Migrations
 
                     b.Property<bool>("Activo")
                         .HasColumnType("bit");
+
+                    b.Property<decimal?>("Descuento")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("decimal(5,2)");
 
                     b.Property<decimal?>("EfectivoRecibido")
                         .HasPrecision(18, 2)

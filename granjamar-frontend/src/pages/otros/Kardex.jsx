@@ -153,7 +153,7 @@ export default function Kardex() {
                       <td className="font-mono text-sm">{item.codigo}</td>
                       <td>{[item.especie, item.marca].filter(Boolean).join(' ') || item.especie}</td>
                       <td>{item.talla || '—'}</td>
-                      <td className="text-right">{item.pesoCaja ?? '—'}</td>
+                      <td className="text-right">{item.pesoCaja ?? 'Peso variado'}</td>
                       <td className="text-right">{money(item.precioKilo)}</td>
                       <td className="text-right">
                         {puede('productos', 'editar') && (
@@ -221,7 +221,7 @@ export default function Kardex() {
           <label className="block">
             <span className="text-sm font-semibold text-teal">Peso por caja</span>
             <select className="gm-input mt-1" value={form.idPesoCaja} onChange={(e) => setForm({ ...form, idPesoCaja: e.target.value })}>
-              <option value="">Sin peso</option>
+              <option value="">Peso variado</option>
               {cat.pesosCaja.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.peso} kg

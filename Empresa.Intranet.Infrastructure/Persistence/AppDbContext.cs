@@ -121,6 +121,8 @@ public DbSet<UsuarioPermiso> UsuariosPermiso { get; set; }
             .Property(d => d.Kilos).HasPrecision(18, 3);
         modelBuilder.Entity<DetalleMovimiento>()
             .Property(d => d.Saldo).HasPrecision(18, 3);
+        modelBuilder.Entity<DetalleMovimiento>()
+            .Property(d => d.PrecioKilo).HasPrecision(18, 2);
         modelBuilder.Entity<Existencia>()
             .Property(e => e.Costo).HasPrecision(18, 2);
         modelBuilder.Entity<PesoCaja>()
@@ -141,6 +143,8 @@ public DbSet<UsuarioPermiso> UsuariosPermiso { get; set; }
             .Property(v => v.Total).HasPrecision(18, 2);
         modelBuilder.Entity<Venta>()
             .Property(v => v.EfectivoRecibido).HasPrecision(18, 2);
+        modelBuilder.Entity<Venta>()
+            .Property(v => v.Descuento).HasPrecision(5, 2);
 
         // ── Relaciones explícitas ──────────────────────────────────────
 

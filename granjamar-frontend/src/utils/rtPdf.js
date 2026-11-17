@@ -129,13 +129,14 @@ export async function descargarRtPdf(datos, destino, obtenerArchivo) {
   texto(miles(datos.totalKilos, 2, 0), X_CANT, 488.5, { size: 8.4, bold: true, align: 'center', maxAncho: 44 })
   texto('KG', X_TEXTO, 488.5, { size: 8.4, bold: true })
   texto('DOMICILIO ORIGEN:', X_TEXTO, 502.2, { size: 8.4, bold: true })
-  texto(mayus(cfg.OrigenNombre), 93.2, 515.9, { size: 7.8, italic: true })
-  texto(mayus(cfg.OrigenRfc), 258.5, 515.9, { size: 7.8, italic: true })
-  texto(mayus(cfg.OrigenCalle), 93.2, 529.5, { size: 7.8, italic: true, maxAncho: 340 })
-  texto(mayus(cfg.OrigenCiudad), 93.2, 541, { size: 7.8, italic: true, maxAncho: 190 })
+  const origen = datos.origen || {}
+  texto(mayus(origen.nombre), 93.2, 515.9, { size: 7.8, italic: true })
+  texto(mayus(origen.rfc), 258.5, 515.9, { size: 7.8, italic: true })
+  texto(mayus(origen.calle), 93.2, 529.5, { size: 7.8, italic: true, maxAncho: 340 })
+  texto(mayus(origen.ciudad), 93.2, 541, { size: 7.8, italic: true, maxAncho: 190 })
   // El código postal va después de la ciudad (a más tardar donde lo lleva la hoja de ejemplo).
-  const finCiudad = 93.2 + doc.getTextWidth(mayus(cfg.OrigenCiudad))
-  texto(cfg.OrigenCp ? `CP ${cfg.OrigenCp}` : '', Math.max(203.4, finCiudad + 14), 540.7, { size: 7.8, italic: true })
+  const finCiudad = 93.2 + doc.getTextWidth(mayus(origen.ciudad))
+  texto(origen.codigoPostal ? `CP ${origen.codigoPostal}` : '', Math.max(203.4, finCiudad + 14), 540.7, { size: 7.8, italic: true })
 
   // ── Clave SAT: kilos, descripción e importe de cada una, y el total ──────────────────────────────────────────────────
   texto('CLAVE SAT:', 93.2, 563.8, { size: 8.4, bold: true })
