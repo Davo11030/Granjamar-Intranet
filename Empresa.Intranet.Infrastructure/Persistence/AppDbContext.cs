@@ -145,6 +145,8 @@ public DbSet<UsuarioPermiso> UsuariosPermiso { get; set; }
             .Property(v => v.EfectivoRecibido).HasPrecision(18, 2);
         modelBuilder.Entity<Venta>()
             .Property(v => v.Descuento).HasPrecision(5, 2);
+        modelBuilder.Entity<Venta>()
+            .Property(v => v.NombreCliente).HasMaxLength(200);
 
         // ── Relaciones explícitas ──────────────────────────────────────
 

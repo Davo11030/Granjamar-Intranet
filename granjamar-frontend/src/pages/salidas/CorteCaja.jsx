@@ -155,7 +155,7 @@ export default function CorteCaja() {
                   {ventas.map((v) => (
                     <tr key={v.id}>
                       <td>{formatearHora(v.fechaRegistro)}</td>
-                      <td>{v.cliente || 'Venta mostrador'}</td>
+                      <td>{v.cliente || 'Público en general'}</td>
                       <td>{v.usuario || '—'}</td>
                       <td>{v.formaPago || '—'}</td>
                       <td className="text-right font-semibold">{money(v.total)}</td>

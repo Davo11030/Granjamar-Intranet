@@ -17,6 +17,7 @@ public class VentaDto
 public class CrearVentaDto
 {
     public uint? IdCliente { get; set; }
+    public string? NombreCliente { get; set; }
     public uint? IdFormaPago { get; set; }
     public uint? IdLugarEntrega { get; set; }
     public uint? IdEstadoRecoleccion { get; set; }

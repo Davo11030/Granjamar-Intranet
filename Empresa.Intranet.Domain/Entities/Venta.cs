@@ -6,6 +6,8 @@ public class Venta
     public uint? IdEstadoRecoleccion { get; set; }
     public uint? IdLugarEntrega { get; set; }
     public uint? IdCliente { get; set; }
+    // Nombre escrito en una venta de mostrador (que no es de un cliente del catálogo). Sin nombre: "Público en general".
+    public string? NombreCliente { get; set; }
     public uint? IdFormaPago { get; set; }
     public decimal Total { get; set; }
     // Descuento (%) que se aplicó al final de la cuenta: Total = suma de los renglones × (1 − Descuento / 100).

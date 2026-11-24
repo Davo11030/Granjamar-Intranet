@@ -184,7 +184,7 @@ export default function Ventas() {
                       </td>
                       <td>{formatearFecha(v.fechaRegistro)}</td>
                       <td>{formatearHora(v.fechaRegistro)}</td>
-                      <td>{v.cliente || 'Venta mostrador'}</td>
+                      <td>{v.cliente || 'Público en general'}</td>
                       <td>{v.formaPago || '—'}</td>
                       <td className="text-right font-semibold">
                         {`$${Number(v.total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`}
@@ -256,7 +256,7 @@ export default function Ventas() {
               </div>
               <div>
                 <dt className="text-xs font-semibold text-gray-500">Cliente</dt>
-                <dd>{detalle.cliente || 'Venta mostrador'}</dd>
+                <dd>{detalle.cliente || 'Público en general'}</dd>
               </div>
               <div>
                 <dt className="text-xs font-semibold text-gray-500">Forma de pago</dt>

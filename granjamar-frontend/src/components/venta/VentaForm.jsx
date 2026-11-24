@@ -23,7 +23,7 @@ import {
 import { seleccionarUbicaciones } from '../../utils/stock'
 import { idsEmpresaPermitidos, filtrarPorEmpresasPermitidas } from '../../utils/ubicaciones'
 import { fechaHoy } from '../../utils/fecha'
-import { desgloseCambio } from '../../utils/dinero'
+import { desgloseCambio, sugerenciasEfectivo } from '../../utils/dinero'
 
 const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
@@ -35,6 +35,45 @@ const FILA_VACIA = {
 
 const ENTREGAS = ['Mostrador', 'Rampa 1', 'Rampa 2', 'Rampa 3', 'Rampa 4 (puerta azul)']
 const PAGOS = ['Efectivo', 'Tarjeta', 'SPEI', 'Credito', 'Pendiente']
+
+// Iconos simples de cada forma de pago.
+const IconoPago = ({ tipo }) => {
+  const p = { width: 28, height: 28, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', strokeLinejoin: 'round' }
+  if (tipo === 'Efectivo')
+    return (
+      <svg {...p}>
+        <rect x="2.5" y="6" width="19" height="12" rx="2" />
+        <circle cx="12" cy="12" r="2.6" />
+        <path d="M6 9.5v.01M18 14.5v.01" />
+      </svg>
+    )
+  if (tipo === 'Tarjeta')
+    return (
+      <svg {...p}>
+        <rect x="2.5" y="5" width="19" height="14" rx="2" />
+        <path d="M2.5 10h19M6.5 15h4" />
+      </svg>
+    )
+  if (tipo === 'SPEI')
+    return (
+      <svg {...p}>
+        <path d="M3 10 12 4l9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18" />
+      </svg>
+    )
+  if (tipo === 'Credito')
+    return (
+      <svg {...p}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </svg>
+    )
+  return (
+    <svg {...p}>
+      <path d="M7 3h10M7 21h10M8 3v3.5a4 4 0 0 0 1.6 3.2L12 12l2.4-2.3A4 4 0 0 0 16 6.5V3M8 21v-3.5a4 4 0 0 1 1.6-3.2L12 12l2.4 2.3A4 4 0 0 1 16 17.5V21" />
+    </svg>
+  )
+}
+const ROTULO_PAGO = { Credito: 'Crédito' }
 
 export default function VentaForm({ modo }) {
   const esMayoreo = modo === 'mayoreo'
@@ -121,7 +160,15 @@ export default function VentaForm({ modo }) {
   const descuentoPct = esMayoreo ? 0 : Math.min(100, Math.max(0, Number(descuento) || 0))
   const montoDescuento = Math.round(subtotal * descuentoPct) / 100
   const total = Math.round((subtotal - montoDescuento) * 100) / 100
+  // Mayoreo: el descuento va por producto. Se juntan los renglones con descuento para confirmarlos antes de cerrar.
+  const lineasConDescuento = esMayoreo ? articulos.filter((a) => a.codigo && Number(a.desc) > 0) : []
+  const sinDescuentoDe = (a) => Number(a.cantCajas || 0) * Number(a.kilosCaja || 0) * Number(a.precioKilo || 0)
+  const montoDescLineas = lineasConDescuento.reduce((acc, a) => acc + (sinDescuentoDe(a) - Number(a.importe || 0)), 0)
+  const hayDescuento = esMayoreo ? lineasConDescuento.length > 0 : descuentoPct > 0
   const cambio = Number(efectivoRecibido || 0) - total
+  // El botón de cerrar solo se habilita con una forma de pago elegida (y, en efectivo, con lo recibido completo).
+  const montosSugeridos = useMemo(() => sugerenciasEfectivo(total), [total])
+  const puedeCerrar = !!tipoPago && (tipoPago !== 'Efectivo' || Number(efectivoRecibido || 0) >= total)
   const piezasCambio = useMemo(() => desgloseCambio(Math.max(0, cambio)), [cambio])
 
   const buscarCliente = (texto) => {
@@ -138,7 +185,6 @@ export default function VentaForm({ modo }) {
     const conProducto = articulos.filter((a) => a.codigo)
     if (conProducto.length === 0) return 'Agrega al menos un artículo con producto'
     if (esMayoreo && !idCliente) return 'Selecciona un cliente de la lista'
-    if (!esMayoreo && !cliente.trim()) return 'Ingresa el nombre del cliente'
     for (const a of conProducto) {
       if (Number(a.cantCajas) <= 0) return `Cantidad de cajas inválida en ${a.codigo}`
       if (a.cantKilos > a.stockDisponible)
@@ -151,8 +197,8 @@ export default function VentaForm({ modo }) {
   const iniciarCierre = () => {
     const msg = validar()
     if (msg) return toast.advertencia(msg)
-    if (esMayoreo) setModalPago(true)
-    else if (descuentoPct > 0) setModalDescuento(true) // un descuento siempre se confirma antes de seguir
+    if (hayDescuento) setModalDescuento(true) // un descuento siempre se confirma antes de seguir
+    else if (esMayoreo) setModalPago(true)
     else setModalEntrega(true)
   }
 
@@ -195,6 +241,8 @@ export default function VentaForm({ modo }) {
       await crearVenta({
         idUsuario: usuario?.id,
         idCliente: esMayoreo ? idCliente : null,
+        // Venta de mostrador sin nombre: se guarda como "Público en general".
+        nombreCliente: esMayoreo ? null : cliente.trim() || 'Público en general',
         idFormaPago,
         idLugarEntrega,
         idEstadoRecoleccion,
@@ -227,7 +275,7 @@ export default function VentaForm({ modo }) {
             <span className="text-teal font-semibold text-lg">Nombre cliente:</span>
             <input
               className="gm-input-amarillo w-56"
-              placeholder="Escribe aqui"
+              placeholder={esMayoreo ? 'Escribe aqui' : 'Público en general'}
               value={cliente}
               onChange={(e) => (esMayoreo ? buscarCliente(e.target.value) : setCliente(e.target.value))}
             />
@@ -418,18 +466,29 @@ export default function VentaForm({ modo }) {
         </div>
       </div>
 
-      {/* Confirmación del descuento (solo mostrador) */}
+      {/* Confirmación del descuento (mostrador: el de la cuenta; mayoreo: el de cada producto) */}
       <Modal abierto={modalDescuento} onCerrar={() => setModalDescuento(false)} ancho="max-w-sm" titulo="Confirmar descuento">
         <p className="text-sm text-gray-600">Vas a cerrar esta venta con un descuento. Revisa que sea correcto:</p>
         <dl className="mt-4 space-y-2 text-sm">
           <div className="flex justify-between">
             <dt className="text-gray-500">Subtotal</dt>
-            <dd className="font-semibold">{money(subtotal)}</dd>
+            <dd className="font-semibold">{money(esMayoreo ? subtotal + montoDescLineas : subtotal)}</dd>
           </div>
-          <div className="flex justify-between">
-            <dt className="text-gray-500">Descuento ({descuentoPct}%)</dt>
-            <dd className="font-semibold text-red-600">−{money(montoDescuento)}</dd>
-          </div>
+          {esMayoreo ? (
+            lineasConDescuento.map((a, i) => (
+              <div key={i} className="flex justify-between">
+                <dt className="text-gray-500">
+                  Descuento {a.codigo} ({Number(a.desc)}%)
+                </dt>
+                <dd className="font-semibold text-red-600">−{money(sinDescuentoDe(a) - Number(a.importe || 0))}</dd>
+              </div>
+            ))
+          ) : (
+            <div className="flex justify-between">
+              <dt className="text-gray-500">Descuento ({descuentoPct}%)</dt>
+              <dd className="font-semibold text-red-600">−{money(montoDescuento)}</dd>
+            </div>
+          )}
           <div className="flex justify-between border-t border-gray-200 pt-2 text-base">
             <dt className="font-bold">Total a cobrar</dt>
             <dd className="font-extrabold text-teal">{money(total)}</dd>
@@ -443,7 +502,8 @@ export default function VentaForm({ modo }) {
             className="gm-btn-guardar flex-1"
             onClick={() => {
               setModalDescuento(false)
-              setModalEntrega(true)
+              if (esMayoreo) setModalPago(true)
+              else setModalEntrega(true)
             }}
           >
             Confirmar descuento
@@ -477,66 +537,99 @@ export default function VentaForm({ modo }) {
 
       {/* Modal pago */}
       <Modal abierto={modalPago} onCerrar={() => setModalPago(false)} variante="cyan" ancho="max-w-xl" titulo="Forma de pago">
-        <div className="mb-6 flex flex-wrap gap-2">
-          {PAGOS.map((t) => (
-            <button
-              key={t}
-              onClick={() => {
-                setTipoPago(t)
-                setError('')
-              }}
-              className={`rounded-full px-4 py-1.5 text-sm font-semibold text-white transition ${
-                tipoPago === t ? 'bg-marca-oscuro' : 'bg-marca hover:brightness-95'
-              }`}
-            >
-              {t}
-            </button>
-          ))}
+        {/* Total a cobrar */}
+        <div className="mb-5 rounded-2xl bg-white/70 px-5 py-4 text-center">
+          <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Total a cobrar</p>
+          <p className="text-4xl font-extrabold text-teal">{money(total)}</p>
         </div>
 
-        <div className="mb-6 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="font-semibold">Total</span>
-            <span
-              className="rounded px-4 py-1 text-lg font-bold"
-              style={{ backgroundColor: 'var(--color-campo-amarillo)' }}
-            >
-              {money(total)}
-            </span>
-          </div>
+        {/* Formas de pago */}
+        <div className="mb-5 grid grid-cols-3 gap-2 sm:grid-cols-5">
+          {PAGOS.map((t) => {
+            const activo = tipoPago === t
+            return (
+              <button
+                key={t}
+                type="button"
+                aria-pressed={activo}
+                onClick={() => {
+                  setTipoPago(t)
+                  setError('')
+                }}
+                className={`flex flex-col items-center gap-1.5 rounded-2xl border-2 px-2 py-3 text-xs font-bold transition ${
+                  activo
+                    ? 'border-marca-oscuro bg-marca text-white shadow-md'
+                    : 'border-transparent bg-white/70 text-marca hover:bg-white hover:shadow-sm'
+                }`}
+              >
+                <IconoPago tipo={t} />
+                {ROTULO_PAGO[t] || t}
+              </button>
+            )
+          })}
+        </div>
 
+        {tipoPago === '' && <p className="mb-5 text-center text-sm text-gray-500">Selecciona cómo va a pagar el cliente.</p>}
+
+        <div className="mb-5 space-y-3">
           {tipoPago === 'Efectivo' && (
             <>
-              <div className="flex items-center justify-between">
-                <span>Efectivo recibido</span>
-                <input
-                  type="number"
-                  className="w-40 rounded px-4 py-1 text-right font-semibold outline-none"
-                  style={{ backgroundColor: 'var(--color-campo-amarillo)' }}
-                  value={efectivoRecibido}
-                  onChange={(e) => setEfectivoRecibido(e.target.value)}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <span>Cambio</span>
-                <span
-                  className={`rounded px-4 py-1 font-bold ${
-                    cambio >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
-                  }`}
+              <label className="block">
+                <span className="mb-1 block text-sm font-semibold text-gray-700">Efectivo recibido</span>
+                <div className="flex items-center rounded-xl px-4 py-2" style={{ backgroundColor: 'var(--color-campo-amarillo)' }}>
+                  <span className="mr-2 text-lg font-bold text-gray-500">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    inputMode="decimal"
+                    autoFocus
+                    className="w-full bg-transparent text-right text-2xl font-bold outline-none"
+                    placeholder="0.00"
+                    value={efectivoRecibido}
+                    onChange={(e) => setEfectivoRecibido(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && puedeCerrar && !guardando && confirmar()}
+                  />
+                </div>
+              </label>
+
+              {/* Montos rápidos */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEfectivoRecibido(String(total))}
+                  className="rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-teal transition hover:bg-white"
                 >
-                  {money(Math.max(0, cambio))}
-                </span>
+                  Exacto
+                </button>
+                {montosSugeridos.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setEfectivoRecibido(String(m))}
+                    className="rounded-full bg-white/80 px-3 py-1 text-xs font-bold text-marca transition hover:bg-white"
+                  >
+                    {money(m)}
+                  </button>
+                ))}
+              </div>
+
+              {/* Cambio */}
+              <div
+                className={`flex items-center justify-between rounded-xl px-4 py-3 ${
+                  efectivoRecibido === '' ? 'bg-white/60 text-gray-500' : cambio >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
+                }`}
+              >
+                <span className="text-sm font-semibold">{efectivoRecibido !== '' && cambio < 0 ? 'Faltan' : 'Cambio'}</span>
+                <span className="text-2xl font-extrabold">{money(efectivoRecibido === '' ? 0 : Math.abs(cambio))}</span>
               </div>
 
               {cambio > 0 && piezasCambio.length > 0 && (
-                <div className="rounded bg-white/60 px-3 py-2">
+                <div className="rounded-xl bg-white/60 px-3 py-2">
                   <p className="mb-1.5 text-xs font-semibold text-gray-500">Entregar:</p>
                   <div className="flex flex-wrap gap-2">
                     {piezasCambio.map((p) => (
-                      <span
-                        key={p.valor}
-                        className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700"
-                      >
+                      <span key={p.valor} className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700">
                         {p.cantidad} × {money(p.valor)}
                       </span>
                     ))}
@@ -547,33 +640,40 @@ export default function VentaForm({ modo }) {
           )}
 
           {tipoPago === 'Tarjeta' && (
-            <div className="flex gap-6 pt-1">
-              {['Credito', 'Debito'].map((s) => (
-                <label key={s} className="flex cursor-pointer items-center gap-2">
-                  <input
-                    type="radio"
-                    name="subtarjeta"
-                    checked={subtipoTarjeta === s}
-                    onChange={() => setSubtipoTarjeta(s)}
-                  />
-                  {s === 'Credito' ? 'Crédito' : 'Débito'}
-                </label>
+            <div className="grid grid-cols-2 gap-1 rounded-full bg-white/70 p-1" role="radiogroup" aria-label="Tipo de tarjeta">
+              {['Credito', 'Debito'].map((sub) => (
+                <button
+                  key={sub}
+                  type="button"
+                  role="radio"
+                  aria-checked={subtipoTarjeta === sub}
+                  onClick={() => setSubtipoTarjeta(sub)}
+                  className={`rounded-full py-2 text-sm font-bold transition ${
+                    subtipoTarjeta === sub ? 'bg-marca text-white shadow' : 'text-marca hover:bg-white'
+                  }`}
+                >
+                  {sub === 'Credito' ? 'Crédito' : 'Débito'}
+                </button>
               ))}
             </div>
           )}
 
           {(tipoPago === 'SPEI' || tipoPago === 'Credito' || tipoPago === 'Pendiente') && (
-            <p className="rounded bg-white/60 px-3 py-2 text-sm text-gray-600">
+            <p className="rounded-xl bg-white/60 px-4 py-3 text-sm text-gray-600">
               {tipoPago === 'SPEI'
                 ? 'Verifica la transferencia antes de liberar el producto.'
                 : tipoPago === 'Credito'
-                ? 'La venta quedará registrada como crédito pendiente de cobro.'
-                : 'La venta quedará pendiente de pago.'}
+                  ? 'La venta quedará registrada como crédito pendiente de cobro.'
+                  : 'La venta quedará pendiente de pago.'}
             </p>
           )}
         </div>
 
-        {error && <p className="mb-3 rounded bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+        {error && (
+          <p role="alert" className="mb-3 rounded-xl bg-red-50 px-4 py-2 text-sm text-red-600">
+            {error}
+          </p>
+        )}
 
         <div className="flex gap-3">
           <button className="gm-btn-cancelar flex-1" onClick={() => setModalPago(false)}>
@@ -581,8 +681,8 @@ export default function VentaForm({ modo }) {
           </button>
           <button
             onClick={confirmar}
-            disabled={guardando}
-            className="flex-1 rounded-full bg-purple-400 py-2.5 font-bold text-white transition hover:bg-purple-500 disabled:opacity-50"
+            disabled={guardando || !puedeCerrar}
+            className="flex-1 rounded-full bg-purple-400 py-2.5 font-bold text-white transition hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {guardando ? 'Guardando…' : 'Cerrar venta'}
           </button>

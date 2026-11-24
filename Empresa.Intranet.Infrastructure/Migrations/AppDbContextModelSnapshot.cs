@@ -1586,6 +1586,10 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                     b.Property<long?>("IdLugarEntrega")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("NombreCliente")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
                     b.Property<decimal>("Total")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");

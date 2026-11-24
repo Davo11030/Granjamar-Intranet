@@ -46,7 +46,7 @@ public class VentasController : ControllerBase
 
         return new
         {
-            Cliente = cliente?.Nombre,
+            Cliente = cliente?.Nombre ?? venta.NombreCliente,
             FormaPago = formaPago?.Nombre,
             LugarEntrega = lugarEntrega?.Nombre,
             EstadoRecoleccion = estadoRecoleccion?.Descripcion,
@@ -82,7 +82,7 @@ public class VentasController : ControllerBase
             .Select(v => new VentaDto
             {
                 Id = v.Id,
-                Cliente = v.Cliente != null ? v.Cliente.Nombre : null,
+                Cliente = v.Cliente != null ? v.Cliente.Nombre : (v.NombreCliente ?? "Público en general"),
                 FormaPago = v.FormaPago != null ? v.FormaPago.Nombre : null,
                 LugarEntrega = v.LugarEntrega != null ? v.LugarEntrega.Nombre : null,
                 EstadoRecoleccion = v.EstadoRecoleccion != null ? v.EstadoRecoleccion.Descripcion : null,
@@ -134,7 +134,7 @@ public class VentasController : ControllerBase
         return Ok(new
         {
             v.Id,
-            Cliente = v.Cliente?.Nombre,
+            Cliente = v.Cliente?.Nombre ?? v.NombreCliente ?? "Público en general",
             FormaPago = v.FormaPago?.Nombre,
             LugarEntrega = v.LugarEntrega?.Nombre,
             EstadoRecoleccion = v.EstadoRecoleccion?.Descripcion,
@@ -160,10 +160,14 @@ public class VentasController : ControllerBase
         return null;
     }
 
-    private async Task<string> DestinoVentaAsync(uint? idCliente)
+    // Nombre con el que se guarda una venta de mostrador: el que se escribió o, si no se puso ninguno, "Público en general".
+    private static string? NombreMostrador(CrearVentaDto dto) =>
+        dto.IdCliente != null ? null : (string.IsNullOrWhiteSpace(dto.NombreCliente) ? "Público en general" : dto.NombreCliente.Trim());
+
+    private async Task<string> DestinoVentaAsync(uint? idCliente, string? nombreMostrador = null)
     {
         var nombre = idCliente != null ? (await _context.Clientes.FindAsync(idCliente))?.Nombre : null;
-        return nombre ?? "Venta mostrador";
+        return nombre ?? nombreMostrador ?? "Venta mostrador";
     }
 
     [HttpPost]
@@ -224,6 +228,7 @@ public class VentasController : ControllerBase
         {
             IdHistorial = historial.Id,
             IdCliente = dto.IdCliente,
+            NombreCliente = NombreMostrador(dto),
             IdFormaPago = dto.IdFormaPago,
             IdLugarEntrega = dto.IdLugarEntrega,
             IdEstadoRecoleccion = dto.IdEstadoRecoleccion,
@@ -237,7 +242,7 @@ public class VentasController : ControllerBase
         await _context.SaveChangesAsync();
 
         // Producto de una empresa en consignación → solicitud de compra para esa empresa.
-        await _pedidos.SincronizarAsync("Venta", venta.Id, "Cliente", await DestinoVentaAsync(dto.IdCliente),
+        await _pedidos.SincronizarAsync("Venta", venta.Id, "Cliente", await DestinoVentaAsync(dto.IdCliente, venta.NombreCliente),
             detallesCreados.Select(d => new LineaPedido(null, d.IdExistencia, d.Kilos, d.IdDireccion)));
 
         var detallesTexto = await ResolverDetalles(detallesCreados);
@@ -319,6 +324,7 @@ public class VentasController : ControllerBase
         }
 
         venta.IdCliente = dto.IdCliente;
+        venta.NombreCliente = NombreMostrador(dto);
         venta.IdFormaPago = dto.IdFormaPago;
         venta.IdLugarEntrega = dto.IdLugarEntrega;
         venta.IdEstadoRecoleccion = dto.IdEstadoRecoleccion;
@@ -329,7 +335,7 @@ public class VentasController : ControllerBase
         venta.HistorialMovimiento.IdUsuario = this.IdUsuarioActual();
 
         await _context.SaveChangesAsync();
-        await _pedidos.SincronizarAsync("Venta", venta.Id, "Cliente", await DestinoVentaAsync(dto.IdCliente),
+        await _pedidos.SincronizarAsync("Venta", venta.Id, "Cliente", await DestinoVentaAsync(dto.IdCliente, venta.NombreCliente),
             detallesNuevos.Select(d => new LineaPedido(null, d.IdExistencia, d.Kilos, d.IdDireccion)));
 
         var datosNuevos = await SnapshotVenta(venta, await ResolverDetalles(detallesNuevos));
