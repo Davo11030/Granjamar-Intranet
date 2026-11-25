@@ -154,3 +154,14 @@ body {
     box-shadow: 0 2px 8px -2px rgb(0 0 0 / 0.06);
   }
 }
+
+/* Al imprimir una pantalla (p. ej. el corte de caja) no salen el menú ni los botones marcados. */
+@media print {
+  .no-imprimir {
+    display: none !important;
+  }
+  body,
+  .bg-fondo {
+    background: #fff !important;
+  }
+}

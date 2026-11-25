@@ -10,6 +10,7 @@ import IconoMas from '../../components/IconoMas'
 import usePaginacion from '../../hooks/usePaginacion'
 import { getVentas, getVenta, cambiarEstadoVenta } from '../../api/ventas'
 import { formatearFecha, formatearHora, formatearFechaHora } from '../../utils/fecha'
+import { imprimirTicketVenta, imprimirReporteVentas } from '../../utils/impresionVentas'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 
@@ -74,6 +75,26 @@ export default function Ventas() {
       toast.error(e.response?.data?.mensaje || 'No se pudo cargar la venta')
     } finally {
       setAbriendo(false)
+    }
+  }
+
+  const imprimirTicket = (id) =>
+    imprimirTicketVenta(() => getVenta(id).then((r) => r.data)).catch((e) =>
+      toast.error(e.response?.data?.mensaje || e.message || 'No se pudo imprimir el ticket'),
+    )
+
+  const generarReporte = async () => {
+    if (!rango.desde || !rango.hasta) return toast.advertencia('Elige la fecha de inicio y la de fin')
+    if (rango.desde > rango.hasta) return toast.advertencia('La fecha de inicio no puede ser posterior a la de fin')
+    try {
+      await imprimirReporteVentas(
+        () => getVentas({ desde: rango.desde, hasta: rango.hasta }).then((r) => r.data),
+        rango.desde,
+        rango.hasta,
+      )
+      setReporte(false)
+    } catch (e) {
+      toast.error(e.response?.data?.mensaje || e.message || 'No se pudo generar el reporte')
     }
   }
 
@@ -168,9 +189,10 @@ export default function Ventas() {
                     <tr key={v.id}>
                       <td>
                         <button
-                          onClick={() => window.print()}
+                          onClick={() => imprimirTicket(v.id)}
                           className="text-gray-400 hover:text-teal"
-                          aria-label="Imprimir"
+                          aria-label="Imprimir ticket"
+                          title="Imprimir ticket"
                         >
                           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                             <path
@@ -369,7 +391,7 @@ export default function Ventas() {
           <button className="gm-btn-cancelar" onClick={() => setReporte(false)}>
             Cancelar
           </button>
-          <button className="gm-btn-guardar" onClick={() => window.print()}>
+          <button className="gm-btn-guardar" onClick={generarReporte}>
             Generar
           </button>
         </div>

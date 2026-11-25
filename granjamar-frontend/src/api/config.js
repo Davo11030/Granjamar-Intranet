@@ -17,11 +17,13 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Si el token expira, redirige al login
+// Si el token expira, redirige al login. El 401 del propio login (usuario o contraseña incorrectos) no
+// redirige: recargar la página borraría el mensaje de error antes de que el usuario lo vea.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const esLogin = /\/Usuarios\/login$/i.test(error.config?.url || '')
+    if (error.response?.status === 401 && !esLogin) {
       localStorage.removeItem('token')
       localStorage.removeItem('usuario')
       window.location.href = '/login'

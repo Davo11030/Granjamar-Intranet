@@ -7,12 +7,14 @@ export default function Layout({ children }) {
 
   return (
     <div className="min-h-screen bg-fondo">
-      <Sidebar abierto={sidebarAbierto} onCerrar={() => setSidebarAbierto(false)} />
+      <div className="no-imprimir">
+        <Sidebar abierto={sidebarAbierto} onCerrar={() => setSidebarAbierto(false)} />
+      </div>
 
       <button
         onClick={() => setSidebarAbierto(true)}
         aria-label="Abrir menú"
-        className="gm-hamburguesa"
+        className="gm-hamburguesa no-imprimir"
       >
         <span className="flex flex-col gap-[5px]">
           <span className="block w-6 h-[3px] rounded bg-black" />
@@ -22,7 +24,9 @@ export default function Layout({ children }) {
       </button>
 
       <main className="pb-16">{children}</main>
-      <TokenExpiry />
+      <div className="no-imprimir">
+        <TokenExpiry />
+      </div>
     </div>
   )
 }

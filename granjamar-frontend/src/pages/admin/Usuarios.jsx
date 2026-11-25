@@ -56,7 +56,7 @@ export default function Usuarios() {
   const [sel, setSel] = useState(null)
   const [permisosUsuario, setPermisosUsuario] = useState([])
   const [guardando, setGuardando] = useState(false)
-  const [form, setForm] = useState({ nombre: '', puesto: 'admin', contrasena: '', correo: '' })
+  const [form, setForm] = useState({ nombre: '', puesto: '', contrasena: '', correo: '' })
   const [formEdit, setFormEdit] = useState({ id: null, nombre: '', puesto: '', correo: '', contrasena: '' })
   const [formP, setFormP] = useState({ modulo: '', accion: '', descripcion: '' })
 
@@ -111,6 +111,7 @@ export default function Usuarios() {
 
   const guardarUsuario = async () => {
     if (!form.nombre.trim()) return toast.advertencia('El nombre de usuario es obligatorio')
+    if (!form.puesto) return toast.advertencia('Elige el puesto del usuario')
     if (!form.contrasena || form.contrasena.length < 4)
       return toast.advertencia('La contraseña debe tener al menos 4 caracteres')
     setGuardando(true)
@@ -118,7 +119,7 @@ export default function Usuarios() {
       await crearUsuario({ ...form, nombre: form.nombre.trim(), idUsuario: actual?.id })
       toast.exito('Usuario creado')
       setModalUsuario(false)
-      setForm({ nombre: '', puesto: 'admin', contrasena: '', correo: '' })
+      setForm({ nombre: '', puesto: '', contrasena: '', correo: '' })
       cargar()
     } catch (e) {
       toast.error(e.response?.data?.mensaje || 'No se pudo crear el usuario')
@@ -128,12 +129,13 @@ export default function Usuarios() {
   }
 
   const abrirEditar = (u) => {
-    setFormEdit({ id: u.id, nombre: u.nombre || '', puesto: u.puesto || 'admin', correo: u.correo || '', contrasena: '' })
+    setFormEdit({ id: u.id, nombre: u.nombre || '', puesto: u.puesto || '', correo: u.correo || '', contrasena: '' })
     setModalEditar(true)
   }
 
   const guardarEdicion = async () => {
     if (!formEdit.nombre.trim()) return toast.advertencia('El nombre de usuario es obligatorio')
+    if (!formEdit.puesto) return toast.advertencia('Elige el puesto del usuario')
     if (formEdit.contrasena && formEdit.contrasena.length < 4)
       return toast.advertencia('La contraseña debe tener al menos 4 caracteres')
     setGuardando(true)
@@ -277,10 +279,16 @@ export default function Usuarios() {
           <label className="block">
             <span className="text-sm font-semibold text-teal">Puesto</span>
             <select className="gm-input mt-1" value={form.puesto} onChange={(e) => setForm({ ...form, puesto: e.target.value })}>
+              <option value="">Selecciona…</option>
               {PUESTOS.map((p) => (
                 <option key={p}>{p}</option>
               ))}
             </select>
+            {form.puesto === 'admin' && (
+              <span className="mt-1 block text-xs font-semibold text-amber-700">
+                El administrador tiene todos los permisos, incluidos usuarios y movimientos.
+              </span>
+            )}
           </label>
           <label className="block">
             <span className="text-sm font-semibold text-teal">Contraseña *</span>
@@ -310,10 +318,16 @@ export default function Usuarios() {
           <label className="block">
             <span className="text-sm font-semibold text-teal">Puesto</span>
             <select className="gm-input mt-1" value={formEdit.puesto} onChange={(e) => setFormEdit({ ...formEdit, puesto: e.target.value })}>
+              <option value="">Selecciona…</option>
               {PUESTOS.map((p) => (
                 <option key={p}>{p}</option>
               ))}
             </select>
+            {formEdit.puesto === 'admin' && (
+              <span className="mt-1 block text-xs font-semibold text-amber-700">
+                El administrador tiene todos los permisos, incluidos usuarios y movimientos.
+              </span>
+            )}
           </label>
           <label className="block">
             <span className="text-sm font-semibold text-teal">Correo electrónico</span>

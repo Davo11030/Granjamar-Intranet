@@ -86,7 +86,7 @@ export default function CorteCaja() {
               </select>
             </label>
           )}
-          <button className="gm-btn-guardar py-1.5" onClick={() => window.print()}>
+          <button className="gm-btn-guardar no-imprimir py-1.5" onClick={() => window.print()}>
             Imprimir
           </button>
         </div>
