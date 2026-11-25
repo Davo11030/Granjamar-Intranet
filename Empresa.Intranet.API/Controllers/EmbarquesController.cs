@@ -962,6 +962,22 @@ public class EmbarquesController : ControllerBase
         if (tipoMovimiento == null)
             return BadRequest(new { mensaje = "No existe tipo de movimiento 'Embarque'" });
 
+        // Validar todos los renglones antes de escribir nada (antes se validaban cuando el
+        // historial y el transporte ya estaban guardados, y quedaban huérfanos).
+        foreach (var detalle in dto.Detalles)
+        {
+            var producto = await _context.Productos.FindAsync(detalle.CodigoProducto);
+            if (producto == null)
+                return BadRequest(new { mensaje = $"No existe el producto {detalle.CodigoProducto}" });
+
+            var disponible = await StockDisponibleEnDireccion(detalle.CodigoProducto, detalle.IdDireccion);
+            if (disponible < detalle.Kilos)
+                return BadRequest(new { mensaje = $"Stock insuficiente en esa ubicación. Disponible: {disponible} kg" });
+        }
+
+        // Todo lo de la base va en una transacción: embarque, pedido de consignación y auditoría
+        // quedan juntos o no queda nada.
+        await using var tx = await _context.Database.BeginTransactionAsync();
         var historial = new HistorialMovimiento
         {
             FechaRegistro = DateTime.UtcNow,
@@ -988,14 +1004,6 @@ public class EmbarquesController : ControllerBase
         var detallesCreados = new List<DetalleMovimiento>();
         foreach (var detalle in dto.Detalles)
         {
-            var producto = await _context.Productos.FindAsync(detalle.CodigoProducto);
-            if (producto == null)
-                return BadRequest(new { mensaje = $"No existe el producto {detalle.CodigoProducto}" });
-
-            var disponible = await StockDisponibleEnDireccion(detalle.CodigoProducto, detalle.IdDireccion);
-            if (disponible < detalle.Kilos)
-                return BadRequest(new { mensaje = $"Stock insuficiente en esa ubicación. Disponible: {disponible} kg" });
-
             var nuevoDetalle = new DetalleMovimiento
             {
                 IdHistorial = historial.Id,
@@ -1035,6 +1043,7 @@ public class EmbarquesController : ControllerBase
         var detallesTexto = await ResolverDetalles(detallesCreados);
         await _auditoria.RegistrarAsync("embarque", embarque.Id.ToString(), "CREAR", null,
             await SnapshotEmbarque(embarque, detallesTexto), dto.IdUsuario);
+        await tx.CommitAsync();
 
         return CreatedAtAction(nameof(GetPorId), new { id = embarque.Id }, new { embarque.Id });
     }
@@ -1207,7 +1216,9 @@ public class EmbarquesController : ControllerBase
                 return BadRequest(new { mensaje = $"Stock insuficiente en un lote seleccionado. Disponible: {ubicacion.CantidadKilos} kg" });
         }
 
-        // 3) Todo válido: recién aquí se descuenta el stock real y se reemplazan los renglones.
+        // 3) Todo válido: recién aquí se descuenta el stock real y se reemplazan los renglones
+        //    (en una transacción junto con la auditoría).
+        await using var tx = await _context.Database.BeginTransactionAsync();
         foreach (var (ubicacion, kilos) in porUbicacion.Values)
             ubicacion.CantidadKilos -= kilos;
 
@@ -1247,6 +1258,7 @@ public class EmbarquesController : ControllerBase
 
         await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR",
             new { Solicitud = antes }, new { Solicitud = dto.Detalles, Tarimas = dto.Tarimas }, dto.IdUsuario);
+        await tx.CommitAsync();
 
         return NoContent();
     }
@@ -1380,6 +1392,8 @@ public class EmbarquesController : ControllerBase
 
         // Todo válido: recién aquí se reemplazan los renglones planeados (la Requisición no
         // descuenta stock real — ver Crear — así que no hay nada que revertir, solo reemplazar).
+        // Todo en una transacción: si algo falla el embarque queda como estaba.
+        await using var tx = await _context.Database.BeginTransactionAsync();
         _context.DetallesMovimiento.RemoveRange(embarque.HistorialMovimiento.DetallesMovimiento);
 
         // Actualizar transporte si viene
@@ -1441,6 +1455,7 @@ public class EmbarquesController : ControllerBase
 
         var datosNuevos = await SnapshotEmbarque(embarque, await ResolverDetalles(detallesNuevos));
         await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR", datosAnteriores, datosNuevos, dto.IdUsuario);
+        await tx.CommitAsync();
 
         return NoContent();
     }
@@ -1459,6 +1474,8 @@ public class EmbarquesController : ControllerBase
         if (embarque == null) return NotFound();
 
         var datosAnteriores = await SnapshotEmbarque(embarque, await ResolverDetalles(embarque.HistorialMovimiento.DetallesMovimiento));
+
+        await using var tx = await _context.Database.BeginTransactionAsync();
 
         // La Requisición (HistorialMovimiento.DetallesMovimiento) ya no tiene stock real que
         // devolver — eso solo lo reserva la Solicitud (ver GuardarSolicitud), así que es lo único
@@ -1481,6 +1498,7 @@ public class EmbarquesController : ControllerBase
         await _pedidos.AnularPendientesAsync("Embarque", embarque.Id);
 
         await _auditoria.RegistrarAsync("embarque", id.ToString(), "ELIMINAR", datosAnteriores, null, idUsuario);
+        await tx.CommitAsync();
 
         return NoContent();
     }

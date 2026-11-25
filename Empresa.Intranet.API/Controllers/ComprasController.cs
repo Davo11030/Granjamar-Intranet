@@ -243,6 +243,14 @@ public class ComprasController : ControllerBase
         if (tipoMovimiento == null)
             return BadRequest(new { mensaje = "No existe tipo de movimiento 'Compra'" });
 
+        // Validar todos los productos antes de escribir nada (antes se validaban dentro del ciclo,
+        // cuando el historial, el transporte y los lotes anteriores ya estaban guardados).
+        foreach (var detalle in dto.Detalles)
+            if (await _context.Productos.FindAsync(detalle.CodigoProducto) == null)
+                return BadRequest(new { mensaje = $"No existe el producto {detalle.CodigoProducto}" });
+
+        // Todo lo de la base va en una transacción: si algo falla no queda una entrada a medias.
+        await using var tx = await _context.Database.BeginTransactionAsync();
         var historial = new HistorialMovimiento
         {
             FechaRegistro = DateTime.UtcNow,
@@ -267,10 +275,6 @@ public class ComprasController : ControllerBase
         var detallesCreados = new List<DetalleMovimiento>();
         foreach (var detalle in dto.Detalles)
         {
-            var producto = await _context.Productos.FindAsync(detalle.CodigoProducto);
-            if (producto == null)
-                return BadRequest(new { mensaje = $"No existe el producto {detalle.CodigoProducto}" });
-
             var existencia = new Existencia
             {
                 Lote = detalle.Lote,
@@ -325,12 +329,15 @@ public class ComprasController : ControllerBase
         _context.Compras.Add(compra);
         await _context.SaveChangesAsync();
 
-        // Los archivos de los documentos quedan ligados a cada documento (pedimento/factura).
-        var advertencias = await AdjuntarArchivosDocumentosAsync(dto);
-
         var detallesTexto = await ResolverDetalles(detallesCreados);
         await _auditoria.RegistrarAsync("compras", compra.Id.ToString(), "CREAR", null,
             await SnapshotCompra(compra, detallesTexto), dto.IdUsuario);
+        await tx.CommitAsync();
+
+        // Los archivos de los documentos quedan ligados a cada documento (pedimento/factura).
+        // Va después del commit: mover archivos en disco no se puede deshacer con la transacción,
+        // y si falla la entrada ya existe y solo se avisa (como antes).
+        var advertencias = await AdjuntarArchivosDocumentosAsync(dto);
 
         return CreatedAtAction(nameof(GetPorId), new { id = compra.Id }, new { compra.Id, advertencias });
     }
@@ -461,7 +468,8 @@ public class ComprasController : ControllerBase
                 return BadRequest(new { mensaje = $"Del lote {ex.Lote} ya salieron {d.Kilos - (ub?.CantidadKilos ?? 0):0.###} kg: no puedes dejar la entrada en menos de eso." });
         }
 
-        // ── Aplicar.
+        // ── Aplicar, en una transacción: si algo falla la entrada queda como estaba.
+        await using var tx = await _context.Database.BeginTransactionAsync();
         foreach (var d in quitados)
         {
             var ub = await _context.UbicacionesProducto.FirstOrDefaultAsync(u => u.IdExistencia == d.IdExistencia && u.IdDireccion == d.IdDireccion && u.IdDepartamento == d.IdDepartamento);
@@ -547,12 +555,15 @@ public class ComprasController : ControllerBase
         compra.HistorialMovimiento.IdUsuario = this.IdUsuarioActual();
 
         await _context.SaveChangesAsync();
-        var advertencias = await AdjuntarArchivosDocumentosAsync(dto);
 
         // Registrar auditoría
         var detallesFinales = await _context.DetallesMovimiento.Where(d => d.IdHistorial == compra.HistorialMovimiento.Id).ToListAsync();
         var datosNuevos = await SnapshotCompra(compra, await ResolverDetalles(detallesFinales));
         await _auditoria.RegistrarAsync("compras", id.ToString(), "MODIFICAR", datosAnteriores, datosNuevos, dto.IdUsuario);
+        await tx.CommitAsync();
+
+        // Archivos después del commit (mover archivos en disco no se deshace con la transacción).
+        var advertencias = await AdjuntarArchivosDocumentosAsync(dto);
 
         return Ok(new { advertencias });
     }
@@ -570,6 +581,8 @@ public class ComprasController : ControllerBase
         if (compra == null) return NotFound();
 
         var datosAnteriores = await SnapshotCompra(compra, await ResolverDetalles(compra.HistorialMovimiento!.DetallesMovimiento));
+
+        await using var tx = await _context.Database.BeginTransactionAsync();
 
         // Revertir stock
         foreach (var detalle in compra.HistorialMovimiento!.DetallesMovimiento)
@@ -593,6 +606,7 @@ public class ComprasController : ControllerBase
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("compras", id.ToString(), "ELIMINAR", datosAnteriores, null, idUsuario);
+        await tx.CommitAsync();
 
         return NoContent();
     }

@@ -182,15 +182,9 @@ public class VentasController : ControllerBase
         if (tipoMovimiento == null)
             return BadRequest(new { mensaje = "No existe tipo de movimiento 'Venta'" });
 
-        var historial = new HistorialMovimiento
-        {
-            FechaRegistro = DateTime.UtcNow,
-            IdUsuario = this.IdUsuarioActual()
-        };
-        _context.HistorialesMovimiento.Add(historial);
-        await _context.SaveChangesAsync();
-
-        var detallesCreados = new List<DetalleMovimiento>();
+        // Validar TODOS los renglones antes de escribir nada. El stock se descuenta solo en memoria
+        // (la entidad rastreada), así dos renglones del mismo lote se validan contra lo que queda;
+        // si uno falla se responde sin haber guardado nada.
         foreach (var detalle in dto.Detalles)
         {
             var existencia = await _context.Existencias.FindAsync(detalle.IdExistencia);
@@ -208,6 +202,23 @@ public class VentasController : ControllerBase
             if (ubicacion.CantidadKilos < detalle.Kilos)
                 return BadRequest(new { mensaje = $"Stock insuficiente. Disponible: {ubicacion.CantidadKilos} kg" });
 
+            ubicacion.CantidadKilos -= detalle.Kilos;
+        }
+
+        // Todo válido: recién aquí se escribe, dentro de una transacción (venta, pedido de
+        // consignación y auditoría quedan juntos o no queda nada).
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        var historial = new HistorialMovimiento
+        {
+            FechaRegistro = DateTime.UtcNow,
+            IdUsuario = this.IdUsuarioActual()
+        };
+        _context.HistorialesMovimiento.Add(historial);
+        await _context.SaveChangesAsync();
+
+        var detallesCreados = new List<DetalleMovimiento>();
+        foreach (var detalle in dto.Detalles)
+        {
             var nuevoDetalle = new DetalleMovimiento
             {
                 IdHistorial = historial.Id,
@@ -220,8 +231,6 @@ public class VentasController : ControllerBase
             };
             _context.DetallesMovimiento.Add(nuevoDetalle);
             detallesCreados.Add(nuevoDetalle);
-
-            ubicacion.CantidadKilos -= detalle.Kilos;
         }
 
         var venta = new Venta
@@ -248,6 +257,7 @@ public class VentasController : ControllerBase
         var detallesTexto = await ResolverDetalles(detallesCreados);
         await _auditoria.RegistrarAsync("venta", venta.Id.ToString(), "CREAR", null,
             await SnapshotVenta(venta, detallesTexto), dto.IdUsuario);
+        await tx.CommitAsync();
 
         return CreatedAtAction(nameof(GetPorId), new { id = venta.Id }, new { venta.Id });
     }
@@ -274,7 +284,12 @@ public class VentasController : ControllerBase
         // Guardar datos anteriores para auditoría (antes de tocar los campos de venta)
         var datosAnteriores = await SnapshotVenta(venta, await ResolverDetalles(venta.HistorialMovimiento!.DetallesMovimiento));
 
-        // Revertir stock anterior — devolver kilos
+        // Todo el cambio va en una transacción: si algo falla (validación, pedido de consignación o
+        // auditoría) la venta queda exactamente como estaba.
+        await using var tx = await _context.Database.BeginTransactionAsync();
+
+        // Revertir stock anterior — devolver kilos (solo en memoria hasta el guardado final, así
+        // una validación fallida abajo no deja la venta sin renglones ni el stock ya devuelto).
         foreach (var detalleAnterior in venta.HistorialMovimiento.DetallesMovimiento)
         {
             var ubicacion = await _context.UbicacionesProducto
@@ -286,7 +301,6 @@ public class VentasController : ControllerBase
         }
 
         _context.DetallesMovimiento.RemoveRange(venta.HistorialMovimiento.DetallesMovimiento);
-        await _context.SaveChangesAsync();
 
         // Validar y aplicar nuevos detalles
         var detallesNuevos = new List<DetalleMovimiento>();
@@ -340,6 +354,7 @@ public class VentasController : ControllerBase
 
         var datosNuevos = await SnapshotVenta(venta, await ResolverDetalles(detallesNuevos));
         await _auditoria.RegistrarAsync("venta", id.ToString(), "MODIFICAR", datosAnteriores, datosNuevos, dto.IdUsuario);
+        await tx.CommitAsync();
 
         return NoContent();
     }
@@ -379,6 +394,8 @@ public class VentasController : ControllerBase
 
         var datosAnteriores = await SnapshotVenta(venta, await ResolverDetalles(venta.HistorialMovimiento!.DetallesMovimiento));
 
+        await using var tx = await _context.Database.BeginTransactionAsync();
+
         // Revertir stock — devolver kilos
         foreach (var detalle in venta.HistorialMovimiento!.DetallesMovimiento)
         {
@@ -395,6 +412,7 @@ public class VentasController : ControllerBase
         await _pedidos.AnularPendientesAsync("Venta", venta.Id);
 
         await _auditoria.RegistrarAsync("venta", id.ToString(), "ELIMINAR", datosAnteriores, null, idUsuario);
+        await tx.CommitAsync();
 
         return NoContent();
     }
