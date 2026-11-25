@@ -129,7 +129,7 @@ public class ExistenciasController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Crear([FromBody] CrearExistenciaDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "existencias", "crear"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "existencias", "crear"))
             return this.SinPermiso();
 
         var producto = await _context.Productos.FindAsync(dto.CodigoProducto);
@@ -154,7 +154,7 @@ public class ExistenciasController : ControllerBase
             existencia.CodigoProducto,
             existencia.Costo,
             existencia.Caducidad
-        }, dto.IdUsuario);
+        }, this.IdUsuarioActual());
 
         return CreatedAtAction(nameof(GetPorId), new { id = existencia.Id },
             new { existencia.Id, existencia.Lote, existencia.CodigoProducto });
@@ -163,7 +163,7 @@ public class ExistenciasController : ControllerBase
     [HttpPut("{id}")]
     public async Task<IActionResult> Actualizar(uint id, [FromBody] CrearExistenciaDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "existencias", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "existencias", "editar"))
             return this.SinPermiso();
 
         var existencia = await _context.Existencias
@@ -192,15 +192,15 @@ public class ExistenciasController : ControllerBase
             existencia.CodigoProducto,
             existencia.Costo,
             existencia.Caducidad
-        }, dto.IdUsuario);
+        }, this.IdUsuarioActual());
 
         return NoContent();
     }
 
     [HttpDelete("{id}")]
-    public async Task<IActionResult> Eliminar(uint id, [FromQuery] uint idUsuario)
+    public async Task<IActionResult> Eliminar(uint id)
     {
-        if (!await _permisoService.TienePermisoAsync(idUsuario, "existencias", "eliminar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "existencias", "eliminar"))
             return this.SinPermiso();
 
         var existencia = await _context.Existencias
@@ -219,7 +219,7 @@ public class ExistenciasController : ControllerBase
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("existencias", id.ToString(), "ELIMINAR",
-            datosAnteriores, null, idUsuario);
+            datosAnteriores, null, this.IdUsuarioActual());
 
         return NoContent();
     }

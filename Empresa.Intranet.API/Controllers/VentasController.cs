@@ -173,7 +173,7 @@ public class VentasController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Crear([FromBody] CrearVentaDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "ventas", "crear"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "ventas", "crear"))
             return this.SinPermiso();
         var errorDetalles = ValidarDetallesVenta(dto);
         if (errorDetalles != null) return BadRequest(new { mensaje = errorDetalles });
@@ -256,7 +256,7 @@ public class VentasController : ControllerBase
 
         var detallesTexto = await ResolverDetalles(detallesCreados);
         await _auditoria.RegistrarAsync("venta", venta.Id.ToString(), "CREAR", null,
-            await SnapshotVenta(venta, detallesTexto), dto.IdUsuario);
+            await SnapshotVenta(venta, detallesTexto), this.IdUsuarioActual());
         await tx.CommitAsync();
 
         return CreatedAtAction(nameof(GetPorId), new { id = venta.Id }, new { venta.Id });
@@ -265,7 +265,7 @@ public class VentasController : ControllerBase
     [HttpPut("{id}")]
     public async Task<IActionResult> Actualizar(uint id, [FromBody] CrearVentaDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "ventas", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "ventas", "editar"))
             return this.SinPermiso();
         var errorDetalles = ValidarDetallesVenta(dto);
         if (errorDetalles != null) return BadRequest(new { mensaje = errorDetalles });
@@ -353,7 +353,7 @@ public class VentasController : ControllerBase
             detallesNuevos.Select(d => new LineaPedido(null, d.IdExistencia, d.Kilos, d.IdDireccion)));
 
         var datosNuevos = await SnapshotVenta(venta, await ResolverDetalles(detallesNuevos));
-        await _auditoria.RegistrarAsync("venta", id.ToString(), "MODIFICAR", datosAnteriores, datosNuevos, dto.IdUsuario);
+        await _auditoria.RegistrarAsync("venta", id.ToString(), "MODIFICAR", datosAnteriores, datosNuevos, this.IdUsuarioActual());
         await tx.CommitAsync();
 
         return NoContent();
@@ -364,7 +364,7 @@ public class VentasController : ControllerBase
     [HttpPut("{id}/estado")]
     public async Task<IActionResult> CambiarEstado(uint id, [FromBody] CambiarEstadoVentaDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "ventas", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "ventas", "editar"))
             return this.SinPermiso();
 
         var venta = await _context.Ventas.FirstOrDefaultAsync(v => v.Id == id && v.Activo);
@@ -374,15 +374,15 @@ public class VentasController : ControllerBase
         venta.Estado = dto.Estado;
         await _context.SaveChangesAsync();
 
-        await _auditoria.RegistrarAsync("venta", id.ToString(), "MODIFICAR", antes, new { venta.Estado }, dto.IdUsuario);
+        await _auditoria.RegistrarAsync("venta", id.ToString(), "MODIFICAR", antes, new { venta.Estado }, this.IdUsuarioActual());
 
         return NoContent();
     }
 
     [HttpDelete("{id}")]
-    public async Task<IActionResult> Eliminar(uint id, [FromQuery] uint idUsuario)
+    public async Task<IActionResult> Eliminar(uint id)
     {
-        if (!await _permisoService.TienePermisoAsync(idUsuario, "ventas", "eliminar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "ventas", "eliminar"))
             return this.SinPermiso();
 
         var venta = await _context.Ventas
@@ -411,7 +411,7 @@ public class VentasController : ControllerBase
         await _context.SaveChangesAsync();
         await _pedidos.AnularPendientesAsync("Venta", venta.Id);
 
-        await _auditoria.RegistrarAsync("venta", id.ToString(), "ELIMINAR", datosAnteriores, null, idUsuario);
+        await _auditoria.RegistrarAsync("venta", id.ToString(), "ELIMINAR", datosAnteriores, null, this.IdUsuarioActual());
         await tx.CommitAsync();
 
         return NoContent();

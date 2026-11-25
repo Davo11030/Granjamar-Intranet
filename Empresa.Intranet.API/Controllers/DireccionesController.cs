@@ -83,7 +83,7 @@ public class DireccionesController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Crear([FromBody] CrearDireccionDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "direcciones", "crear"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "direcciones", "crear"))
             return this.SinPermiso();
 
         var item = new Direccion
@@ -99,7 +99,7 @@ public class DireccionesController : ControllerBase
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("direcciones", item.Id.ToString(), "CREAR", null,
-            await Snapshot(item), dto.IdUsuario);
+            await Snapshot(item), this.IdUsuarioActual());
 
         return CreatedAtAction(nameof(GetPorId), new { id = item.Id },
             new DireccionDto { Id = item.Id, Direccion = item.DireccionTexto, Estado = item.Estado, Municipio = item.Municipio, CodigoPostal = item.CodigoPostal, Segmento = item.Segmento, IdEmpresa = item.IdEmpresa });
@@ -108,7 +108,7 @@ public class DireccionesController : ControllerBase
     [HttpPut("{id}")]
     public async Task<IActionResult> Actualizar(uint id, [FromBody] CrearDireccionDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "direcciones", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "direcciones", "editar"))
             return this.SinPermiso();
 
         var item = await _context.Direcciones
@@ -126,15 +126,15 @@ public class DireccionesController : ControllerBase
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("direcciones", id.ToString(), "MODIFICAR", datosAnteriores,
-            await Snapshot(item), dto.IdUsuario);
+            await Snapshot(item), this.IdUsuarioActual());
 
         return NoContent();
     }
 
     [HttpDelete("{id}")]
-    public async Task<IActionResult> Eliminar(uint id, [FromQuery] uint idUsuario)
+    public async Task<IActionResult> Eliminar(uint id)
     {
-        if (!await _permisoService.TienePermisoAsync(idUsuario, "direcciones", "eliminar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "direcciones", "eliminar"))
             return this.SinPermiso();
 
         var item = await _context.Direcciones
@@ -147,7 +147,7 @@ public class DireccionesController : ControllerBase
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("direcciones", id.ToString(), "ELIMINAR",
-            datosAnteriores, null, idUsuario);
+            datosAnteriores, null, this.IdUsuarioActual());
 
         return NoContent();
     }

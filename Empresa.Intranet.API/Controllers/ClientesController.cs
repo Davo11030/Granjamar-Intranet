@@ -66,7 +66,7 @@ public class ClientesController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Crear([FromBody] CrearClienteDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "clientes", "crear"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "clientes", "crear"))
             return this.SinPermiso();
         var error = ValidarCliente(dto);
         if (error != null) return BadRequest(new { mensaje = error });
@@ -96,7 +96,7 @@ public class ClientesController : ControllerBase
             item.Municipio,
             item.Estado,
             item.CodigoPostal
-        }, dto.IdUsuario);
+        }, this.IdUsuarioActual());
 
         return CreatedAtAction(nameof(GetPorId), new { id = item.Id },
             new { item.Id, item.Nombre, item.Telefono, item.Rfc, item.Calle, item.Colonia, item.Municipio, item.Estado, item.CodigoPostal });
@@ -105,7 +105,7 @@ public class ClientesController : ControllerBase
     [HttpPut("{id}")]
     public async Task<IActionResult> Actualizar(uint id, [FromBody] CrearClienteDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "clientes", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "clientes", "editar"))
             return this.SinPermiso();
         var error = ValidarCliente(dto);
         if (error != null) return BadRequest(new { mensaje = error });
@@ -146,15 +146,15 @@ public class ClientesController : ControllerBase
             item.Municipio,
             item.Estado,
             item.CodigoPostal
-        }, dto.IdUsuario);
+        }, this.IdUsuarioActual());
 
         return NoContent();
     }
 
     [HttpDelete("{id}")]
-    public async Task<IActionResult> Eliminar(uint id, [FromQuery] uint idUsuario)
+    public async Task<IActionResult> Eliminar(uint id)
     {
-        if (!await _permisoService.TienePermisoAsync(idUsuario, "clientes", "eliminar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "clientes", "eliminar"))
             return this.SinPermiso();
 
         var item = await _context.Clientes
@@ -173,7 +173,7 @@ public class ClientesController : ControllerBase
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("clientes", id.ToString(), "ELIMINAR",
-            datosAnteriores, null, idUsuario);
+            datosAnteriores, null, this.IdUsuarioActual());
 
         return NoContent();
     }

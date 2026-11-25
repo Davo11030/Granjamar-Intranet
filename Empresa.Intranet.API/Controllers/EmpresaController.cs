@@ -50,7 +50,7 @@ public async Task<IActionResult> GetTodos() =>
     [HttpPost]
     public async Task<IActionResult> Crear([FromBody] CrearEmpresaDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "empresas", "crear"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "empresas", "crear"))
             return this.SinPermiso();
 
         var item = new Domain.Entities.Empresa
@@ -69,7 +69,7 @@ public async Task<IActionResult> GetTodos() =>
             item.Nombre,
             item.Rfc,
             item.UrlLogo
-        }, dto.IdUsuario);
+        }, this.IdUsuarioActual());
 
         return CreatedAtAction(nameof(GetPorId), new { id = item.Id },
             new EmpresaDto { Id = item.Id, Nombre = item.Nombre, Rfc = item.Rfc, Tipo = item.Tipo });
@@ -78,7 +78,7 @@ public async Task<IActionResult> GetTodos() =>
     [HttpPut("{id}")]
     public async Task<IActionResult> Actualizar(uint id, [FromBody] CrearEmpresaDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "empresas", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "empresas", "editar"))
             return this.SinPermiso();
 
         var item = await _context.Empresas
@@ -98,15 +98,15 @@ public async Task<IActionResult> GetTodos() =>
             item.Nombre,
             item.Rfc,
             item.UrlLogo
-        }, dto.IdUsuario);
+        }, this.IdUsuarioActual());
 
         return NoContent();
     }
 
     [HttpDelete("{id}")]
-    public async Task<IActionResult> Eliminar(uint id, [FromQuery] uint idUsuario)
+    public async Task<IActionResult> Eliminar(uint id)
     {
-        if (!await _permisoService.TienePermisoAsync(idUsuario, "empresas", "eliminar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "empresas", "eliminar"))
             return this.SinPermiso();
 
         var item = await _context.Empresas
@@ -119,7 +119,7 @@ public async Task<IActionResult> GetTodos() =>
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("empresas", id.ToString(), "ELIMINAR",
-            datosAnteriores, null, idUsuario);
+            datosAnteriores, null, this.IdUsuarioActual());
 
         return NoContent();
     }

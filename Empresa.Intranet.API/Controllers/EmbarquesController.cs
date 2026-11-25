@@ -717,7 +717,7 @@ public class EmbarquesController : ControllerBase
     [HttpPut("{id}/sellos")]
     public async Task<IActionResult> GuardarSellos(uint id, [FromBody] GuardarSellosDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "embarques", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
             return this.SinPermiso();
 
         var sello1 = Texto(dto.Sello1);
@@ -738,7 +738,7 @@ public class EmbarquesController : ControllerBase
             h.CartaCompleta = true;
         }
         await _context.SaveChangesAsync();
-        await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR", antes, new { SelloSeguridad1 = sello1, SelloSeguridad2 = sello2 }, dto.IdUsuario);
+        await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR", antes, new { SelloSeguridad1 = sello1, SelloSeguridad2 = sello2 }, this.IdUsuarioActual());
         return NoContent();
     }
 
@@ -953,7 +953,7 @@ public class EmbarquesController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Crear([FromBody] CrearEmbarqueDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "embarques", "crear"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "crear"))
             return this.SinPermiso();
         var errorRequisicion = ValidarRequisicion(dto) ?? await ValidarDestinoAsync(dto.IdDireccion);
         if (errorRequisicion != null) return BadRequest(new { mensaje = errorRequisicion });
@@ -1042,7 +1042,7 @@ public class EmbarquesController : ControllerBase
 
         var detallesTexto = await ResolverDetalles(detallesCreados);
         await _auditoria.RegistrarAsync("embarque", embarque.Id.ToString(), "CREAR", null,
-            await SnapshotEmbarque(embarque, detallesTexto), dto.IdUsuario);
+            await SnapshotEmbarque(embarque, detallesTexto), this.IdUsuarioActual());
         await tx.CommitAsync();
 
         return CreatedAtAction(nameof(GetPorId), new { id = embarque.Id }, new { embarque.Id });
@@ -1053,7 +1053,7 @@ public class EmbarquesController : ControllerBase
     [HttpPut("{id}/estado")]
     public async Task<IActionResult> CambiarEstado(uint id, [FromBody] CambiarEstadoEmbarqueDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "embarques", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
             return this.SinPermiso();
 
         var embarque = await _context.Embarques.FirstOrDefaultAsync(e => e.Id == id && e.Activo);
@@ -1063,7 +1063,7 @@ public class EmbarquesController : ControllerBase
         embarque.Estado = dto.Estado;
         await _context.SaveChangesAsync();
 
-        await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR", antes, new { embarque.Estado }, dto.IdUsuario);
+        await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR", antes, new { embarque.Estado }, this.IdUsuarioActual());
 
         return NoContent();
     }
@@ -1075,7 +1075,7 @@ public class EmbarquesController : ControllerBase
     [HttpPut("{id}/documento")]
     public async Task<IActionResult> MarcarDocumento(uint id, [FromBody] MarcarDocumentoDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "embarques", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
             return this.SinPermiso();
 
         if ((dto.Documento ?? "").ToLower() != "ciego")
@@ -1088,7 +1088,7 @@ public class EmbarquesController : ControllerBase
         embarque.CiegoCompleto = dto.Completo;
         await _context.SaveChangesAsync();
 
-        await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR", antes, new { embarque.CiegoCompleto }, dto.IdUsuario);
+        await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR", antes, new { embarque.CiegoCompleto }, this.IdUsuarioActual());
 
         return NoContent();
     }
@@ -1099,7 +1099,7 @@ public class EmbarquesController : ControllerBase
     [HttpPut("{id}/solicitud")]
     public async Task<IActionResult> GuardarSolicitud(uint id, [FromBody] GuardarSolicitudDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "embarques", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
             return this.SinPermiso();
 
         var embarque = await _context.Embarques
@@ -1257,7 +1257,7 @@ public class EmbarquesController : ControllerBase
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR",
-            new { Solicitud = antes }, new { Solicitud = dto.Detalles, Tarimas = dto.Tarimas }, dto.IdUsuario);
+            new { Solicitud = antes }, new { Solicitud = dto.Detalles, Tarimas = dto.Tarimas }, this.IdUsuarioActual());
         await tx.CommitAsync();
 
         return NoContent();
@@ -1269,7 +1269,7 @@ public class EmbarquesController : ControllerBase
     [HttpPut("{id}/rt")]
     public async Task<IActionResult> GuardarRt(uint id, [FromBody] GuardarRtDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "embarques", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
             return this.SinPermiso();
 
         var embarque = await _context.Embarques
@@ -1344,7 +1344,7 @@ public class EmbarquesController : ControllerBase
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR",
-            new { Rt = antes }, new { Rt = dto.Detalles }, dto.IdUsuario);
+            new { Rt = antes }, new { Rt = dto.Detalles }, this.IdUsuarioActual());
 
         return NoContent();
     }
@@ -1352,7 +1352,7 @@ public class EmbarquesController : ControllerBase
     [HttpPut("{id}")]
     public async Task<IActionResult> Actualizar(uint id, [FromBody] CrearEmbarqueDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "embarques", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
             return this.SinPermiso();
         var errorRequisicion = ValidarRequisicion(dto);
         if (errorRequisicion != null) return BadRequest(new { mensaje = errorRequisicion });
@@ -1454,16 +1454,16 @@ public class EmbarquesController : ControllerBase
             dto.Detalles.Select(d => new LineaPedido(d.CodigoProducto, null, d.Kilos, d.IdDireccion)));
 
         var datosNuevos = await SnapshotEmbarque(embarque, await ResolverDetalles(detallesNuevos));
-        await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR", datosAnteriores, datosNuevos, dto.IdUsuario);
+        await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR", datosAnteriores, datosNuevos, this.IdUsuarioActual());
         await tx.CommitAsync();
 
         return NoContent();
     }
 
     [HttpDelete("{id}")]
-    public async Task<IActionResult> Eliminar(uint id, [FromQuery] uint idUsuario)
+    public async Task<IActionResult> Eliminar(uint id)
     {
-         if (!await _permisoService.TienePermisoAsync(idUsuario, "embarques", "eliminar"))
+         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "eliminar"))
             return this.SinPermiso();
         var embarque = await _context.Embarques
             .Include(e => e.HistorialMovimiento)
@@ -1497,7 +1497,7 @@ public class EmbarquesController : ControllerBase
         await _context.SaveChangesAsync();
         await _pedidos.AnularPendientesAsync("Embarque", embarque.Id);
 
-        await _auditoria.RegistrarAsync("embarque", id.ToString(), "ELIMINAR", datosAnteriores, null, idUsuario);
+        await _auditoria.RegistrarAsync("embarque", id.ToString(), "ELIMINAR", datosAnteriores, null, this.IdUsuarioActual());
         await tx.CommitAsync();
 
         return NoContent();

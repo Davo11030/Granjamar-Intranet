@@ -232,7 +232,7 @@ public class ComprasController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Crear([FromBody] CrearCompraDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "compras", "crear"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "compras", "crear"))
             return this.SinPermiso();
         var errorDetalles = ValidarDetallesCompra(dto);
         if (errorDetalles != null) return BadRequest(new { mensaje = errorDetalles });
@@ -331,7 +331,7 @@ public class ComprasController : ControllerBase
 
         var detallesTexto = await ResolverDetalles(detallesCreados);
         await _auditoria.RegistrarAsync("compras", compra.Id.ToString(), "CREAR", null,
-            await SnapshotCompra(compra, detallesTexto), dto.IdUsuario);
+            await SnapshotCompra(compra, detallesTexto), this.IdUsuarioActual());
         await tx.CommitAsync();
 
         // Los archivos de los documentos quedan ligados a cada documento (pedimento/factura).
@@ -350,7 +350,7 @@ public class ComprasController : ControllerBase
     [HttpPut("{id}/estado")]
     public async Task<IActionResult> CambiarEstado(uint id, [FromBody] CambiarEstadoCompraDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "compras", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "compras", "editar"))
             return this.SinPermiso();
 
         if (!EstadosValidos.Contains(dto.Estado))
@@ -363,7 +363,7 @@ public class ComprasController : ControllerBase
         compra.Estado = dto.Estado;
         await _context.SaveChangesAsync();
 
-        await _auditoria.RegistrarAsync("compras", id.ToString(), "MODIFICAR", antes, new { compra.Estado }, dto.IdUsuario);
+        await _auditoria.RegistrarAsync("compras", id.ToString(), "MODIFICAR", antes, new { compra.Estado }, this.IdUsuarioActual());
 
         return NoContent();
     }
@@ -409,7 +409,7 @@ public class ComprasController : ControllerBase
     [HttpPut("{id}")]
     public async Task<IActionResult> Actualizar(uint id, [FromBody] CrearCompraDto dto)
     {
-        if (!await _permisoService.TienePermisoAsync(dto.IdUsuario, "compras", "editar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "compras", "editar"))
             return this.SinPermiso();
         var errorDetalles = ValidarDetallesCompra(dto);
         if (errorDetalles != null) return BadRequest(new { mensaje = errorDetalles });
@@ -559,7 +559,7 @@ public class ComprasController : ControllerBase
         // Registrar auditoría
         var detallesFinales = await _context.DetallesMovimiento.Where(d => d.IdHistorial == compra.HistorialMovimiento.Id).ToListAsync();
         var datosNuevos = await SnapshotCompra(compra, await ResolverDetalles(detallesFinales));
-        await _auditoria.RegistrarAsync("compras", id.ToString(), "MODIFICAR", datosAnteriores, datosNuevos, dto.IdUsuario);
+        await _auditoria.RegistrarAsync("compras", id.ToString(), "MODIFICAR", datosAnteriores, datosNuevos, this.IdUsuarioActual());
         await tx.CommitAsync();
 
         // Archivos después del commit (mover archivos en disco no se deshace con la transacción).
@@ -569,9 +569,9 @@ public class ComprasController : ControllerBase
     }
 
     [HttpDelete("{id}")]
-    public async Task<IActionResult> Eliminar(uint id, [FromQuery] uint idUsuario)
+    public async Task<IActionResult> Eliminar(uint id)
     {
-        if (!await _permisoService.TienePermisoAsync(idUsuario, "compras", "eliminar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "compras", "eliminar"))
             return this.SinPermiso();
         var compra = await _context.Compras
             .Include(c => c.HistorialMovimiento)
@@ -605,7 +605,7 @@ public class ComprasController : ControllerBase
 
         await _context.SaveChangesAsync();
 
-        await _auditoria.RegistrarAsync("compras", id.ToString(), "ELIMINAR", datosAnteriores, null, idUsuario);
+        await _auditoria.RegistrarAsync("compras", id.ToString(), "ELIMINAR", datosAnteriores, null, this.IdUsuarioActual());
         await tx.CommitAsync();
 
         return NoContent();
