@@ -89,13 +89,17 @@ cd Empresa.Intranet.API
 dotnet ef database update --project ../Empresa.Intranet.Infrastructure --startup-project .
 ```
 
-La base queda **vacía** (sin usuarios, catálogos ni datos). Como crear usuarios es una acción de administrador, el primer administrador se da de alta directamente en la tabla `usuario`, con `Puesto = 'admin'` y la contraseña ya con hash BCrypt; después se crean los demás desde la propia aplicación.
+Al arrancar, la API carga sola los **datos mínimos** que falten (nunca borra ni modifica nada):
+
+- Los tipos de movimiento que usa el sistema (Compra, Venta, Embarque, Produccion, Traspaso de producción, Salida a resguardo y Traspaso a resguardo).
+- El catálogo de permisos por módulo y acción.
+- El **primer administrador**, solo si la tabla de usuarios está vacía. Toma el nombre y la contraseña de `Semilla:Admin` en tu `appsettings.json`. Si dejas la contraseña de ejemplo (`CAMBIA-…`), no lo crea. Después de entrar, cambia la contraseña desde tu perfil y bórrala de `appsettings.json`; los demás usuarios se crean desde la aplicación.
 
 ### 3. Levantar la API
 
 ```bash
 cd Empresa.Intranet.API
-dotnet run --no-launch-profile --urls http://localhost:5145
+dotnet run --no-launch-profile --urls http://0.0.0.0:5145
 ```
 
 En desarrollo, la documentación de la API (Swagger) queda en `http://localhost:5145/swagger`.
@@ -108,9 +112,15 @@ npm install
 npm run dev
 ```
 
-Abre `http://localhost:5173`. En Windows, `iniciar-sistema.bat` hace los pasos 3 y 4 de una vez.
+Abre `http://localhost:5173`. En Windows, `iniciar-sistema.bat` hace los pasos 3 y 4 de una vez y muestra la dirección para las demás PCs.
 
-> La API solo acepta peticiones desde `http://localhost:5173` (CORS) y la web llama a `http://localhost:5145/api`. Si cambias los puertos, ajusta `Empresa.Intranet.API/Program.cs` y `granjamar-frontend/src/api/config.js`.
+### Usarla desde otras PCs de la red
+
+La API (`0.0.0.0:5145`) y la web (Vite con `host: true`) escuchan en toda la red. Desde otra PC se entra a `http://<ip-del-servidor>:5173`, y la web llama sola a `http://<ip-del-servidor>:5145/api`.
+
+- Si otra PC no puede entrar, permite los puertos **5145** y **5173** en el Firewall de Windows del servidor.
+- La API acepta peticiones de cualquier equipo de la red local (`Cors:PermitirRedLocal`) y de los orígenes de `Cors:OrigenesPermitidos`. Para entrar con un nombre de equipo o dominio, agrégalo a esa lista.
+- Si la API está en otro equipo o puerto, crea `granjamar-frontend/.env` a partir de `.env.example` con `VITE_API_URL`.
 
 ## Configuración
 
@@ -118,6 +128,9 @@ Abre `http://localhost:5173`. En Windows, `iniciar-sistema.bat` hace los pasos 3
 |---|---|---|
 | Cadena de conexión | `appsettings.json` → `ConnectionStrings:DefaultConnection` | SQL Server |
 | Clave de firma del token | `appsettings.json` → `Jwt:Key` | Secreta; el token dura `Jwt:ExpirationHours` horas |
+| Orígenes permitidos (CORS) | `appsettings.json` → `Cors:OrigenesPermitidos` y `Cors:PermitirRedLocal` | Por defecto, `localhost:5173` y cualquier equipo de la red local |
+| Primer administrador | `appsettings.json` → `Semilla:Admin` | Solo se usa si no hay ningún usuario |
+| Dirección de la API en la web | `granjamar-frontend/.env` → `VITE_API_URL` | Opcional; por defecto, el mismo equipo en el puerto 5145 |
 | Archivos de documentos | Carpeta `Empresa.Intranet.API/Archivos/` (configurable en `Almacenamiento:RutaDocumentos`) | Fuera de `wwwroot`, no se sirven como estáticos y no se versionan |
 
 ## Seguridad y permisos

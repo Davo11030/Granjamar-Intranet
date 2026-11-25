@@ -67,16 +67,26 @@ builder.Services.AddSwaggerGen(c =>
         }
     });
 });
+// CORS: la web puede abrirse desde cualquier PC de la oficina. Se aceptan los orígenes de
+// Cors:OrigenesPermitidos y, si Cors:PermitirRedLocal es true (por defecto), cualquier equipo de la
+// red local (localhost, 10.x, 172.16–31.x, 192.168.x). El token va en la cabecera, no en cookies.
+var origenesPermitidos = builder.Configuration.GetSection("Cors:OrigenesPermitidos").Get<string[]>()
+    ?? new[] { "http://localhost:5173" };
+var permitirRedLocal = builder.Configuration.GetValue("Cors:PermitirRedLocal", true);
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("ReactPolicy", policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
+        policy.SetIsOriginAllowed(origen =>
+                  origenesPermitidos.Contains(origen, StringComparer.OrdinalIgnoreCase)
+                  || (permitirRedLocal && EsRedLocal(origen)))
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
 });
 var app = builder.Build();
+
+await Empresa.Intranet.API.Servicios.SemillaDatos.AplicarAsync(app.Services);
 
 if (app.Environment.IsDevelopment())
 {
@@ -108,3 +118,15 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+static bool EsRedLocal(string origen)
+{
+    if (!Uri.TryCreate(origen, UriKind.Absolute, out var uri)) return false;
+    if (uri.IsLoopback || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)) return true;
+    if (!System.Net.IPAddress.TryParse(uri.Host, out var ip)
+        || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
+    var b = ip.GetAddressBytes();
+    return b[0] == 10
+        || (b[0] == 172 && b[1] >= 16 && b[1] <= 31)
+        || (b[0] == 192 && b[1] == 168);
+}

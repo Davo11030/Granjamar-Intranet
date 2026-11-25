@@ -7,4 +7,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  // Escucha en toda la red (no solo en localhost) para que otras PCs de la oficina puedan entrar.
+  server: { host: true, port: 5173 },
+  preview: { host: true, port: 5173 },
 })
