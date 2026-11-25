@@ -63,7 +63,6 @@ public class CrearDetalleEmbarqueDto
     public uint? IdDepartamento { get; set; }
 }
 
-// Cambiar únicamente el estado de un embarque (marcar completado, etc.).
 // Requisición completa (todos sus destinos) para guardarla en una sola operación. Número, origen y transporte son
 // comunes a todos los destinos; si el número viene vacío lo asigna el servidor.
 public class GuardarRequisicionDto
@@ -95,6 +94,7 @@ public class CiegoDestinoDto
     public List<string> Tarimas { get; set; } = new();
 }
 
+// Cambiar únicamente el estado de un embarque (marcar completado, etc.).
 public class CambiarEstadoEmbarqueDto
 {
     public string Estado { get; set; } = null!;
