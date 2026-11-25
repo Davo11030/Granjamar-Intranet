@@ -6,6 +6,7 @@ import Cargando from '../../components/Cargando'
 import Paginacion from '../../components/Paginacion'
 import { Flecha } from '../../components/HistorialTrazabilidad'
 import { getHistorialEmpresa } from '../../api/inventario'
+import { avisar } from '../../utils/avisoCarga'
 
 const num = (n) =>
   Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -36,7 +37,7 @@ export default function ConsignacionHistorial() {
     setCargando(true)
     getHistorialEmpresa(empresaId, codigo, pagina)
       .then((res) => setDatos(res.data))
-      .catch((e) => console.error('Error cargando historial de consignación:', e))
+      .catch(avisar('No se pudo cargar el historial de consignación'))
       .finally(() => setCargando(false))
   }, [empresaId, codigo, pagina])
 

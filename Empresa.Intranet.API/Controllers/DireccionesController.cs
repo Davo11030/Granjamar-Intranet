@@ -141,6 +141,12 @@ public class DireccionesController : ControllerBase
             .FirstOrDefaultAsync(d => d.Id == id && d.Activo);
         if (item == null) return NotFound();
 
+        var kilos = await _context.UbicacionesProducto
+            .Where(u => u.IdDireccion == id && u.CantidadKilos > 0)
+            .SumAsync(u => (decimal?)u.CantidadKilos) ?? 0;
+        if (kilos > 0)
+            return BadRequest(new { mensaje = $"No se puede dar de baja: la dirección todavía tiene {kilos:N2} kg en inventario." });
+
         var datosAnteriores = await Snapshot(item);
 
         item.Activo = false;

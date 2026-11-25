@@ -19,6 +19,7 @@ import {
   esEmpresaInterna,
   ordenarOpciones,
 } from '../../utils/ubicaciones'
+import { avisar } from '../../utils/avisoCarga'
 
 const EPS = 0.001
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
@@ -67,9 +68,9 @@ export default function Produccion() {
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
-    getProductos().then((r) => setProductos(r.data)).catch(console.error)
-    getUbicaciones().then((r) => setUbicacionesTodas(r.data)).catch(console.error)
-    getEmpresas().then((r) => setEmpresas(r.data)).catch(console.error)
+    getProductos().then((r) => setProductos(r.data)).catch(avisar('No se pudieron cargar los productos'))
+    getUbicaciones().then((r) => setUbicacionesTodas(r.data)).catch(avisar('No se pudieron cargar las existencias por ubicación'))
+    getEmpresas().then((r) => setEmpresas(r.data)).catch(avisar('No se pudieron cargar las empresas'))
   }, [])
 
   const cargar = () => {

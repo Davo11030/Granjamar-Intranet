@@ -20,11 +20,13 @@ import {
   getPesosCaja,
   getPresentaciones,
 } from '../../api/kardex'
+import { avisar } from '../../utils/avisoCarga'
 
 const FORM = { codigo: '', idEspecie: '', idTalla: '', idMarca: '', idPesoCaja: '', precioKilo: '', idsPresentacion: [] }
 const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
 
 export default function Kardex() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const { puede, esAdmin } = useAuth()
   const toast = useToast()
   const [datos, setDatos] = useState([])
@@ -42,7 +44,7 @@ export default function Kardex() {
         setDatos(k.data)
         setCat({ especies: e.data, marcas: m.data, tallas: t.data, pesosCaja: p.data, presentaciones: pr.data })
       })
-      .catch(console.error)
+      .catch(avisar('No se pudo cargar el kardex', () => setErrorCarga(true)))
       .finally(() => setCargando(false))
   }
   useEffect(cargar, [])
@@ -175,7 +177,7 @@ export default function Kardex() {
                   {filtrados.length === 0 && (
                     <tr>
                       <td colSpan={6} className="!py-12 text-center text-gray-400">
-                        {busqueda ? 'Sin resultados para esa búsqueda' : 'Sin productos en el kardex'}
+                        {busqueda ? 'Sin resultados para esa búsqueda' : (errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin productos en el kardex')}
                       </td>
                     </tr>
                   )}

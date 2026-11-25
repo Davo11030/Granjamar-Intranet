@@ -4,10 +4,12 @@ import PageHeader from '../../components/PageHeader'
 import Buscador from '../../components/Buscador'
 import Cargando from '../../components/Cargando'
 import { getDirecciones, getEmpresas } from '../../api/destinos'
+import { avisar } from '../../utils/avisoCarga'
 
 // Destinos: solo para consultar. Las direcciones (con su C.P. y # de segmento) se agregan y se modifican en
 // Admin → Empresas, dentro de cada empresa.
 export default function Destinos() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const [datos, setDatos] = useState([])
   const [empresas, setEmpresas] = useState([])
   const [cargando, setCargando] = useState(true)
@@ -19,7 +21,7 @@ export default function Destinos() {
         setDatos(d.data)
         setEmpresas(e.data)
       })
-      .catch(console.error)
+      .catch(avisar('No se pudieron cargar los destinos', () => setErrorCarga(true)))
       .finally(() => setCargando(false))
   }, [])
 
@@ -78,7 +80,7 @@ export default function Destinos() {
                 {filtrados.length === 0 && (
                   <tr>
                     <td colSpan={7} className="!py-12 text-center text-gray-400">
-                      Sin destinos registrados
+                      {errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin destinos registrados'}
                     </td>
                   </tr>
                 )}

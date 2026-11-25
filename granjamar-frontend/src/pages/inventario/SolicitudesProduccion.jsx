@@ -7,6 +7,7 @@ import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import { getEmpresas } from '../../api/destinos'
 import { getSolicitudesProduccion, crearPedidoDeSolicitudes, quitarSolicitudProduccion } from '../../api/solicitudesProduccion'
+import { avisar } from '../../utils/avisoCarga'
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 const fechaCorta = (f) => {
@@ -48,14 +49,14 @@ export default function SolicitudesProduccion() {
   const cargar = () => {
     getSolicitudesProduccion(empresaId)
       .then((r) => setDatos(r.data))
-      .catch(console.error)
+      .catch(avisar('No se pudieron cargar las solicitudes de producción'))
       .finally(() => setCargando(false))
   }
   useEffect(() => {
     cargar()
     getEmpresas()
       .then((r) => setEmpresa(r.data.find((e) => String(e.id) === String(empresaId))))
-      .catch(console.error)
+      .catch(avisar('No se pudo cargar la empresa'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empresaId])
 

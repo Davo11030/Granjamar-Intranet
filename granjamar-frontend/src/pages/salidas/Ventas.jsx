@@ -13,6 +13,7 @@ import { formatearFecha, formatearHora, formatearFechaHora } from '../../utils/f
 import { imprimirTicketVenta, imprimirReporteVentas } from '../../utils/impresionVentas'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
+import { avisar } from '../../utils/avisoCarga'
 
 // Guardado por ahora (no se aplica todavía): para volver a mostrarlo basta ponerlo en true.
 const MOSTRAR_ESTADO_RECOLECCION = false // columna "Estado recoleccion"
@@ -37,6 +38,7 @@ const ESTADO_VENTA_CLASE = {
 }
 
 export default function Ventas() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const navigate = useNavigate()
   const { usuario, puede, puedeAlguno } = useAuth()
   const toast = useToast()
@@ -51,7 +53,7 @@ export default function Ventas() {
   const menuRef = useRef(null)
 
   const cargar = () => {
-    getVentas().then((r) => setDatos(r.data)).catch(console.error).finally(() => setCargando(false))
+    getVentas().then((r) => setDatos(r.data)).catch(avisar('No se pudieron cargar las ventas', () => setErrorCarga(true))).finally(() => setCargando(false))
   }
 
   useEffect(cargar, [])
@@ -252,7 +254,7 @@ export default function Ventas() {
                   {filtrados.length === 0 && (
                     <tr>
                       <td colSpan={6 + (MOSTRAR_ESTADO_RECOLECCION ? 1 : 0) + (MOSTRAR_ESTADO ? 1 : 0) + (MOSTRAR_ACCIONES ? 1 : 0)} className="text-center !py-12 text-gray-400">
-                        Sin ventas registradas
+                        {errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin ventas registradas'}
                       </td>
                     </tr>
                   )}

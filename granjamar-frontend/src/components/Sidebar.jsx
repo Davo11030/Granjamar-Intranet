@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { getEmpresas } from '../api/destinos'
 import { getEmbarque } from '../api/embarques'
 import ModalPerfil from './ModalPerfil'
+import { avisar } from '../utils/avisoCarga'
 
 const menuItems = [
   { label: 'Inicio', path: '/' },
@@ -55,7 +56,7 @@ export default function Sidebar({ abierto, onCerrar }) {
   useEffect(() => {
     getEmpresas()
       .then((res) => setEmpresas(res.data))
-      .catch((e) => console.error('Error cargando empresas:', e))
+      .catch(avisar('No se pudieron cargar las empresas del menú'))
   }, [])
 
   // Mientras se navega dentro de un embarque (Requisición/Solicitud/RT/Ciego), se muestra ese

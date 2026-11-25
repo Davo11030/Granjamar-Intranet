@@ -15,6 +15,7 @@ import { getSolicitudesProduccion } from '../../api/solicitudesProduccion'
 import { crearEntrada } from '../../api/entradas'
 import { getEmpresas, getDirecciones } from '../../api/destinos'
 import { getChoferes, getTractocamiones } from '../../api/operadores'
+import { avisar } from '../../utils/avisoCarga'
 
 const kg = (n) =>
   Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -56,7 +57,7 @@ export default function InventarioConsignacion() {
         setProductos(prods.data || [])
         setProductosPorCodigo(Object.fromEntries((prods.data || []).map((p) => [p.codigo, p])))
       })
-      .catch(console.error)
+      .catch(avisar('No se pudo cargar el inventario de consignación'))
       .finally(() => setCargando(false))
   }
   useEffect(cargar, [empresaId])

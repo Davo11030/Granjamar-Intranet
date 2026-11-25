@@ -19,6 +19,7 @@ import {
   TIPOS_ARCHIVO_DOCUMENTO,
   MAX_ARCHIVO_DOCUMENTO_MB,
 } from '../../api/documentos'
+import { avisar } from '../../utils/avisoCarga'
 
 const FILA = {
   codigoProducto: '', articulo: '', cantidad: '', costo: '', lote: '',
@@ -70,7 +71,7 @@ export default function EntradaForm({ modo, idEditar }) {
   const recargarEmpresas = () => getEmpresas().then((r) => setEmpresas(r.data))
 
   useEffect(() => {
-    recargarEmpresas().catch(console.error)
+    recargarEmpresas().catch(avisar('No se pudieron cargar las empresas'))
     getDirecciones()
       .then((r) => {
         setDirecciones(r.data)
@@ -81,12 +82,12 @@ export default function EntradaForm({ modo, idEditar }) {
         )
         if (ensenada) setIdDireccion((actual) => actual || String(ensenada.id))
       })
-      .catch(console.error)
-    getProductos().then((r) => setProductos(r.data)).catch(console.error)
-    getChoferes().then((r) => setChoferes(r.data)).catch(console.error)
-    getTractocamiones().then((r) => setTractocamiones(r.data)).catch(console.error)
-    if (esInternacional) getDocumentosTipo().then((r) => setTiposDocumento(r.data)).catch(console.error)
-    if (!esTraspaso) getDocumentos().then((r) => setDocumentosExistentes(r.data)).catch(console.error)
+      .catch(avisar('No se pudieron cargar los destinos'))
+    getProductos().then((r) => setProductos(r.data)).catch(avisar('No se pudieron cargar los productos'))
+    getChoferes().then((r) => setChoferes(r.data)).catch(avisar('No se pudieron cargar los choferes'))
+    getTractocamiones().then((r) => setTractocamiones(r.data)).catch(avisar('No se pudieron cargar los tractocamiones'))
+    if (esInternacional) getDocumentosTipo().then((r) => setTiposDocumento(r.data)).catch(avisar('No se pudieron cargar los tipos de documento'))
+    if (!esTraspaso) getDocumentos().then((r) => setDocumentosExistentes(r.data)).catch(avisar('No se pudieron cargar los documentos'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

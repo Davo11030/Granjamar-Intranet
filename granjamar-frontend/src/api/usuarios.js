@@ -2,7 +2,7 @@ import api from './config'
 export const getUsuarios = () => api.get('/Usuarios')
 export const crearUsuario = (datos) => api.post('/Usuarios', datos)
 export const actualizarUsuario = (id, datos) => api.put(`/Usuarios/${id}`, datos)
-export const eliminarUsuario = (id, idUsuario) => api.delete(`/Usuarios/${id}?idUsuario=${idUsuario}`)
+export const eliminarUsuario = (id) => api.delete(`/Usuarios/${id}`)
 
 // Perfil propio (cualquier usuario autenticado, sin requerir ser admin)
 export const getPerfil = () => api.get('/Usuarios/perfil')

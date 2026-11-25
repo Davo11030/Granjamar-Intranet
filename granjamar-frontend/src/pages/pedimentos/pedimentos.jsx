@@ -16,8 +16,10 @@ import {
   TIPOS_ARCHIVO_DOCUMENTO,
 } from '../../api/documentos'
 import { formatearFecha } from '../../utils/fecha'
+import { avisar } from '../../utils/avisoCarga'
 
 export default function Pedimentos() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const { puede } = useAuth()
   const toast = useToast()
   const inputFile = useRef(null)
@@ -31,10 +33,10 @@ export default function Pedimentos() {
   const [form, setForm] = useState({ numero: '', idTipo: '', lotes: '', descripcion: '', archivo: null })
 
   const cargar = () =>
-    getPedimentos().then((r) => setDatos(r.data)).catch(console.error).finally(() => setCargando(false))
+    getPedimentos().then((r) => setDatos(r.data)).catch(avisar('No se pudieron cargar los pedimentos', () => setErrorCarga(true))).finally(() => setCargando(false))
   useEffect(() => {
     cargar()
-    getDocumentosTipo().then((r) => setTipos(r.data)).catch(console.error)
+    getDocumentosTipo().then((r) => setTipos(r.data)).catch(avisar('No se pudieron cargar los tipos de documento'))
   }, [])
 
   // Se busca por número (ej. "2026import"), tipo, lote, producto o nombre del archivo.
@@ -175,7 +177,7 @@ export default function Pedimentos() {
                 {filtrados.length === 0 && (
                   <tr>
                     <td colSpan={6} className="!py-12 text-center text-gray-400">
-                      Sin documentos registrados
+                      {errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin documentos registrados'}
                     </td>
                   </tr>
                 )}

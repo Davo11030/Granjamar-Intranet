@@ -4,23 +4,28 @@ import PageHeader from '../../components/PageHeader'
 import Cargando from '../../components/Cargando'
 import Modal from '../../components/Modal'
 import AgregarBoton from '../../components/AgregarBoton'
+import ConfirmarBaja from '../../components/ConfirmarBaja'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import {
   getEmpresas,
   crearEmpresa,
   actualizarEmpresa,
+  eliminarEmpresa,
   getDirecciones,
   crearDireccion,
   actualizarDireccion,
+  eliminarDireccion,
 } from '../../api/destinos'
+import { avisar } from '../../utils/avisoCarga'
 
 const TIPOS = ['INTERNA', 'Resguardo', 'Consignacion', 'Cliente', 'Proveedor']
 const DIR_VACIA = { estado: '', municipio: '', direccion: '', codigoPostal: '', segmento: '' }
 const FORM = { nombre: '', rfc: '', tipo: 'INTERNA', urlLogo: '', direcciones: [{ ...DIR_VACIA }] }
 
 export default function Empresas() {
-  const { usuario } = useAuth()
+  const [errorCarga, setErrorCarga] = useState(false)
+  const { usuario, puede } = useAuth()
   const toast = useToast()
   const [empresas, setEmpresas] = useState([])
   const [direcciones, setDirecciones] = useState([])
@@ -30,6 +35,8 @@ export default function Empresas() {
   const [editando, setEditando] = useState(null)
   const [guardando, setGuardando] = useState(false)
   const [form, setForm] = useState({ ...FORM })
+  // { tipo: 'empresa' | 'direccion', item } — lo que se va a dar de baja
+  const [baja, setBaja] = useState(null)
 
   const cargar = () => {
     Promise.all([getEmpresas(), getDirecciones()])
@@ -37,7 +44,7 @@ export default function Empresas() {
         setEmpresas(e.data)
         setDirecciones(d.data)
       })
-      .catch(console.error)
+      .catch(avisar('No se pudieron cargar las empresas', () => setErrorCarga(true)))
       .finally(() => setCargando(false))
   }
   useEffect(cargar, [])
@@ -123,6 +130,26 @@ export default function Empresas() {
     }
   }
 
+  const darDeBaja = async () => {
+    setGuardando(true)
+    try {
+      if (baja.tipo === 'empresa') {
+        await eliminarEmpresa(baja.item.id)
+        toast.exito(`${baja.item.nombre} fue dada de baja`)
+        if (expandida === baja.item.id) setExpandida(null)
+      } else {
+        await eliminarDireccion(baja.item.id)
+        toast.exito('Dirección dada de baja')
+      }
+      setBaja(null)
+      cargar()
+    } catch (e) {
+      toast.error(e.response?.data?.mensaje || 'No se pudo dar de baja')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
   return (
     <Layout>
       <PageHeader titulo="Empresas" />
@@ -166,10 +193,15 @@ export default function Empresas() {
                             {dirs.length} — {abierta ? 'ocultar' : 'ver'}
                           </button>
                         </td>
-                        <td className="text-right">
+                        <td className="text-right whitespace-nowrap">
                           <button className="gm-pill" onClick={() => abrir(e)}>
                             Editar
                           </button>
+                          {puede('empresas', 'eliminar') && (
+                            <button className="gm-pill ml-2" onClick={() => setBaja({ tipo: 'empresa', item: e })}>
+                              Dar de baja
+                            </button>
+                          )}
                         </td>
                       </tr>
                       {abierta && (
@@ -184,12 +216,22 @@ export default function Empresas() {
                               )}
                               <ul className="mb-3 space-y-1">
                                 {dirs.map((d) => (
-                                  <li key={d.id} className="text-sm">
-                                    <span className="font-medium">{d.direccion}</span>
-                                    <span className="text-gray-500">
-                                      {' '}
-                                      — {d.municipio}, {d.estado}
+                                  <li key={d.id} className="flex flex-wrap items-center gap-2 text-sm">
+                                    <span>
+                                      <span className="font-medium">{d.direccion}</span>
+                                      <span className="text-gray-500">
+                                        {' '}
+                                        — {d.municipio}, {d.estado}
+                                      </span>
                                     </span>
+                                    {puede('direcciones', 'eliminar') && (
+                                      <button
+                                        className="text-xs font-semibold text-cancelar hover:underline"
+                                        onClick={() => setBaja({ tipo: 'direccion', item: d })}
+                                      >
+                                        Dar de baja
+                                      </button>
+                                    )}
                                   </li>
                                 ))}
                               </ul>
@@ -204,7 +246,7 @@ export default function Empresas() {
                 {empresas.length === 0 && (
                   <tr>
                     <td colSpan={5} className="!py-12 text-center text-gray-400">
-                      Sin empresas registradas
+                      {errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin empresas registradas'}
                     </td>
                   </tr>
                 )}
@@ -213,6 +255,21 @@ export default function Empresas() {
           </div>
         )}
       </div>
+
+      <ConfirmarBaja
+        abierto={!!baja}
+        titulo={baja?.tipo === 'empresa' ? 'Dar de baja empresa' : 'Dar de baja dirección'}
+        texto={
+          baja?.tipo === 'empresa'
+            ? `${baja.item.nombre} y todas sus direcciones dejarán de aparecer en listas y menús. No se permite si alguna de sus direcciones todavía tiene producto en inventario.`
+            : baja
+              ? `"${baja.item.direccion}" (${baja.item.municipio}) dejará de aparecer como destino. No se permite si todavía tiene producto en inventario.`
+              : ''
+        }
+        procesando={guardando}
+        onCancelar={() => setBaja(null)}
+        onConfirmar={darDeBaja}
+      />
 
       <Modal
         abierto={modal}

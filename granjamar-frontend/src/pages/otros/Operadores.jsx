@@ -23,6 +23,7 @@ import {
   actualizarCaja,
   eliminarCaja,
 } from '../../api/operadores'
+import { avisar } from '../../utils/avisoCarga'
 
 const TABS = [
   { id: 'operadores', label: 'Operadores' },
@@ -44,6 +45,7 @@ const normalizarMarca = (s) => {
 }
 
 export default function Operadores() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const { puede } = useAuth()
   const toast = useToast()
   const [tab, setTab] = useState('operadores')
@@ -77,7 +79,7 @@ export default function Operadores() {
         setMarcas(ma.data)
         setEmpresas(emp.data)
       })
-      .catch(console.error)
+      .catch(avisar('No se pudieron cargar los operadores y unidades', () => setErrorCarga(true)))
       .finally(() => setCargando(false))
   }
   useEffect(cargar, [filtroEmpresa])
@@ -335,7 +337,7 @@ export default function Operadores() {
                 {choferes.length === 0 && (
                   <tr>
                     <td colSpan={4} className="!py-12 text-center text-gray-400">
-                      Sin operadores registrados
+                      {errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin operadores registrados'}
                     </td>
                   </tr>
                 )}
@@ -380,7 +382,7 @@ export default function Operadores() {
                 {tractocamiones.length === 0 && (
                   <tr>
                     <td colSpan={6} className="!py-12 text-center text-gray-400">
-                      Sin tractocamiones registrados
+                      {errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin tractocamiones registrados'}
                     </td>
                   </tr>
                 )}
@@ -423,7 +425,7 @@ export default function Operadores() {
                 {cajas.length === 0 && (
                   <tr>
                     <td colSpan={5} className="!py-12 text-center text-gray-400">
-                      Sin cajas registradas
+                      {errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin cajas registradas'}
                     </td>
                   </tr>
                 )}

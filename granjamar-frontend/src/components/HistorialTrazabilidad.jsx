@@ -7,6 +7,7 @@ import Modal from './Modal'
 import Paginacion from './Paginacion'
 import usePaginacion from '../hooks/usePaginacion'
 import { getTrazabilidad } from '../api/inventario'
+import { avisar } from '../utils/avisoCarga'
 
 const num = (n) =>
   Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -35,7 +36,7 @@ export default function HistorialTrazabilidad() {
     setCargando(true)
     getTrazabilidad(id)
       .then((res) => setDatos(res.data))
-      .catch((e) => console.error('Error cargando trazabilidad:', e))
+      .catch(avisar('No se pudo cargar la trazabilidad'))
       .finally(() => setCargando(false))
   }, [id])
 

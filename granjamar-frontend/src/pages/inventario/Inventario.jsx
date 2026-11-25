@@ -4,6 +4,7 @@ import Layout from '../../components/Layout'
 import PageHeader from '../../components/PageHeader'
 import { getEmpresas } from '../../api/destinos'
 import { useAuth } from '../../context/AuthContext'
+import { avisar } from '../../utils/avisoCarga'
 
 export default function Inventario() {
   const navigate = useNavigate()
@@ -11,7 +12,7 @@ export default function Inventario() {
   const [empresas, setEmpresas] = useState([])
 
   useEffect(() => {
-    getEmpresas().then((r) => setEmpresas(r.data)).catch(console.error)
+    getEmpresas().then((r) => setEmpresas(r.data)).catch(avisar('No se pudieron cargar las empresas'))
   }, [])
 
   const opciones = [

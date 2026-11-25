@@ -13,6 +13,7 @@ import { getProductos, getUbicaciones } from '../../api/inventario'
 import { crearEmbarque, actualizarEmbarque, eliminarEmbarque, getEmbarque, getEmbarques, getEmbarquesPorNumero } from '../../api/embarques'
 import { getChoferes, getTractocamiones, getCajas } from '../../api/operadores'
 import { esBodegaRestringida, esEmpresaInterna, ubicacionSugerida } from '../../utils/ubicaciones'
+import { avisar } from '../../utils/avisoCarga'
 
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 // La Requisición ya no liga a un lote (idExistencia) específico — solo a una ubicación
@@ -82,18 +83,18 @@ export default function Requisicion() {
   const reconstruido = useRef(false)
 
   useEffect(() => {
-    getDirecciones().then((r) => setDestinos(r.data)).catch(console.error)
+    getDirecciones().then((r) => setDestinos(r.data)).catch(avisar('No se pudieron cargar los destinos'))
     getClientes().then((r) => setClientes(r.data)).catch(() => {})
-    getProductos().then((r) => setProductos(r.data)).catch(console.error)
-    getUbicaciones().then((r) => setUbicaciones(r.data)).catch(console.error)
-    getEmpresas().then((r) => setEmpresas(r.data)).catch(console.error)
-    getChoferes().then((r) => setChoferes(r.data)).catch(console.error)
-    getTractocamiones().then((r) => setTractos(r.data)).catch(console.error)
-    getCajas().then((r) => setCajas(r.data)).catch(console.error)
+    getProductos().then((r) => setProductos(r.data)).catch(avisar('No se pudieron cargar los productos'))
+    getUbicaciones().then((r) => setUbicaciones(r.data)).catch(avisar('No se pudieron cargar las existencias por ubicación'))
+    getEmpresas().then((r) => setEmpresas(r.data)).catch(avisar('No se pudieron cargar las empresas'))
+    getChoferes().then((r) => setChoferes(r.data)).catch(avisar('No se pudieron cargar los choferes'))
+    getTractocamiones().then((r) => setTractos(r.data)).catch(avisar('No se pudieron cargar los tractocamiones'))
+    getCajas().then((r) => setCajas(r.data)).catch(avisar('No se pudieron cargar las cajas'))
   }, [])
 
   useEffect(() => {
-    if (esEdicion) getEmbarque(id).then((r) => setEmbarqueData(r.data)).catch(console.error)
+    if (esEdicion) getEmbarque(id).then((r) => setEmbarqueData(r.data)).catch(avisar('No se pudo cargar el embarque'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 

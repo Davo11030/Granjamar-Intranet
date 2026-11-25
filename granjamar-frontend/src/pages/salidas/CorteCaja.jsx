@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext'
 import { getVentas } from '../../api/ventas'
 import { getUsuarios } from '../../api/usuarios'
 import { fechaHoy, formatearHora } from '../../utils/fecha'
+import { avisar } from '../../utils/avisoCarga'
 
 const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
 const esAdmin = (puesto) => ['admin', 'administrador'].includes((puesto || '').toLowerCase())
@@ -21,7 +22,7 @@ export default function CorteCaja() {
   const [cargando, setCargando] = useState(true)
 
   useEffect(() => {
-    if (admin) getUsuarios().then((r) => setUsuarios(r.data)).catch(console.error)
+    if (admin) getUsuarios().then((r) => setUsuarios(r.data)).catch(avisar('No se pudieron cargar los usuarios'))
   }, [admin])
 
   useEffect(() => {
@@ -30,7 +31,7 @@ export default function CorteCaja() {
     if (idUsuario) params.idUsuario = idUsuario
     getVentas(params)
       .then((r) => setVentas(r.data))
-      .catch(console.error)
+      .catch(avisar('No se pudieron cargar las ventas del día'))
       .finally(() => setCargando(false))
   }, [fecha, idUsuario])
 

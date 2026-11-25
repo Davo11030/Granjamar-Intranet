@@ -11,8 +11,10 @@ import usePaginacion from '../../hooks/usePaginacion'
 import { getEmbarques } from '../../api/embarques'
 import { getDirecciones } from '../../api/destinos'
 import { getClientes } from '../../api/clientes'
+import { avisar } from '../../utils/avisoCarga'
 
 export default function Embarques() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const { puede } = useAuth()
   const navigate = useNavigate()
   const [datos, setDatos] = useState([])
@@ -25,8 +27,8 @@ export default function Embarques() {
   const [hasta, setHasta] = useState('')
 
   useEffect(() => {
-    getEmbarques().then((r) => setDatos(r.data)).catch(console.error).finally(() => setCargando(false))
-    getDirecciones().then((r) => setDestinos(r.data)).catch(console.error)
+    getEmbarques().then((r) => setDatos(r.data)).catch(avisar('No se pudieron cargar los embarques', () => setErrorCarga(true))).finally(() => setCargando(false))
+    getDirecciones().then((r) => setDestinos(r.data)).catch(avisar('No se pudieron cargar los destinos'))
     getClientes().then((r) => setClientes(r.data)).catch(() => {})
   }, [])
 
@@ -164,7 +166,7 @@ export default function Embarques() {
         {cargando ? (
           <Cargando />
         ) : filtrados.length === 0 ? (
-          <p className="py-16 text-center text-gray-400">No hay embarques registrados</p>
+          <p className="py-16 text-center text-gray-400">{errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'No hay embarques registrados'}</p>
         ) : (
           <>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">

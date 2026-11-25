@@ -12,6 +12,7 @@ import { descargarSolicitudPdf } from '../../utils/solicitudPdf'
 import { descargarCiegoPdf } from '../../utils/ciegoPdf'
 import { descargarRtPdf } from '../../utils/rtPdf'
 import { descargarCartaPdf } from '../../utils/cartaPdf'
+import { avisar } from '../../utils/avisoCarga'
 
 // Requisición y RT genuinamente difieren por destino (productos/kilos distintos), así que cuando
 // el número de embarque se comparte entre varios destinos, sus botones de EXCEL/PDF se duplican
@@ -37,7 +38,7 @@ export default function EmbarqueDetalle() {
   const [sellos, setSellos] = useState(null) // { sello1, sello2 } mientras se piden los sellos de la Carta responsiva
 
   const cargar = () => {
-    getEmbarque(id).then((r) => setEmbarque(r.data)).catch(console.error)
+    getEmbarque(id).then((r) => setEmbarque(r.data)).catch(avisar('No se pudo cargar el embarque'))
   }
   useEffect(cargar, [id])
 

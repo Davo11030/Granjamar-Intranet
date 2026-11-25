@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import Cargando from '../../components/Cargando'
 import { getProducciones } from '../../api/produccion'
+import { avisar } from '../../utils/avisoCarga'
 
 // "2026-10-22" → "22/10/2026" (sin pasar por Date, para que la zona horaria no mueva el día)
 const fechaLarga = (f) => String(f).slice(0, 10).split('-').reverse().join('/')
@@ -12,13 +13,14 @@ const o = (n) => (Number(n) > 0 ? kg(n) : '—')
 // Los reportes diarios de producción, uno por día, del más reciente al más viejo. Van debajo de la tabla general y se
 // recorren con scroll dentro de su propio recuadro (el encabezado queda fijo).
 export default function ListaReportes() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const { puede } = useAuth()
   const navigate = useNavigate()
   const [datos, setDatos] = useState([])
   const [cargando, setCargando] = useState(true)
 
   useEffect(() => {
-    getProducciones().then((r) => setDatos(r.data)).catch(console.error).finally(() => setCargando(false))
+    getProducciones().then((r) => setDatos(r.data)).catch(avisar('No se pudieron cargar los reportes de producción', () => setErrorCarga(true))).finally(() => setCargando(false))
   }, [])
 
   return (
@@ -66,7 +68,7 @@ export default function ListaReportes() {
               {datos.length === 0 && (
                 <tr>
                   <td colSpan={7} className="!py-12 text-center text-gray-400">
-                    Sin reportes de producción registrados
+                    {errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin reportes de producción registrados'}
                   </td>
                 </tr>
               )}

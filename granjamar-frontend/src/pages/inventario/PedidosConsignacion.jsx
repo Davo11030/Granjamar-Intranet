@@ -23,6 +23,7 @@ import {
   deshacerDivisionPedido,
 } from '../../api/pedidosConsignacion'
 import { abrirArchivoDocumento, validarArchivoDocumento, TIPOS_ARCHIVO_DOCUMENTO } from '../../api/documentos'
+import { avisar } from '../../utils/avisoCarga'
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 // 09 oct 26
@@ -103,14 +104,14 @@ export default function PedidosConsignacion() {
   const cargar = () => {
     getPedidosConsignacion(empresaId)
       .then((r) => setDatos(r.data))
-      .catch(console.error)
+      .catch(avisar('No se pudieron cargar los pedidos de consignación'))
       .finally(() => setCargando(false))
   }
   useEffect(() => {
     cargar()
     getEmpresas()
       .then((r) => setEmpresa(r.data.find((e) => String(e.id) === String(empresaId))))
-      .catch(console.error)
+      .catch(avisar('No se pudo cargar la empresa'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empresaId])
 

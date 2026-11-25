@@ -7,8 +7,10 @@ import AgregarBoton from '../../components/AgregarBoton'
 import { useToast } from '../../context/ToastContext'
 import api from '../../api/config'
 import { formatearFecha, formatearHora } from '../../utils/fecha'
+import { avisar } from '../../utils/avisoCarga'
 
 export default function Visitantes() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const toast = useToast()
   const [datos, setDatos] = useState([])
   const [cargando, setCargando] = useState(true)
@@ -17,7 +19,7 @@ export default function Visitantes() {
   const [guardando, setGuardando] = useState(false)
 
   const cargar = () =>
-    api.get('/Visitantes').then((r) => setDatos(r.data)).catch(console.error).finally(() => setCargando(false))
+    api.get('/Visitantes').then((r) => setDatos(r.data)).catch(avisar('No se pudieron cargar los visitantes', () => setErrorCarga(true))).finally(() => setCargando(false))
   useEffect(() => {
     cargar()
   }, [])
@@ -70,7 +72,7 @@ export default function Visitantes() {
                 {datos.length === 0 && (
                   <tr>
                     <td colSpan={3} className="!py-12 text-center text-gray-400">
-                      Sin visitantes registrados
+                      {errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin visitantes registrados'}
                     </td>
                   </tr>
                 )}

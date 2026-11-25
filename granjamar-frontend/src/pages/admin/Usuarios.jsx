@@ -4,12 +4,14 @@ import PageHeader from '../../components/PageHeader'
 import Cargando from '../../components/Cargando'
 import Modal from '../../components/Modal'
 import AgregarBoton from '../../components/AgregarBoton'
+import ConfirmarBaja from '../../components/ConfirmarBaja'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import {
   getUsuarios,
   crearUsuario,
   actualizarUsuario,
+  eliminarUsuario,
   getSolicitudesRestablecimiento,
   aprobarSolicitud,
   rechazarSolicitud,
@@ -22,6 +24,7 @@ import {
   crearPermiso,
 } from '../../api/permisos'
 import { formatearFechaHora } from '../../utils/fecha'
+import { avisar } from '../../utils/avisoCarga'
 
 // Módulos con permisos (usuarios, movimientos y visitantes son solo del administrador y no aparecen).
 const MODULOS = [
@@ -43,6 +46,7 @@ const ETIQUETA_ACCION = { corte: 'corte de caja' }
 const PUESTOS = ['admin', 'lic', 'gerente', 'supervisor', 'inge']
 
 export default function Usuarios() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const { usuario: actual } = useAuth()
   const toast = useToast()
   const [datos, setDatos] = useState([])
@@ -59,6 +63,7 @@ export default function Usuarios() {
   const [form, setForm] = useState({ nombre: '', puesto: '', contrasena: '', correo: '' })
   const [formEdit, setFormEdit] = useState({ id: null, nombre: '', puesto: '', correo: '', contrasena: '' })
   const [formP, setFormP] = useState({ modulo: '', accion: '', descripcion: '' })
+  const [baja, setBaja] = useState(null) // usuario que se va a dar de baja
 
   const cargar = () => {
     Promise.all([getUsuarios(), getPermisos(), getSolicitudesRestablecimiento()])
@@ -67,7 +72,7 @@ export default function Usuarios() {
         setPermisos(p.data)
         setSolicitudes(s.data)
       })
-      .catch(console.error)
+      .catch(avisar('No se pudieron cargar los usuarios', () => setErrorCarga(true)))
       .finally(() => setCargando(false))
   }
   useEffect(cargar, [])
@@ -151,6 +156,20 @@ export default function Usuarios() {
       cargar()
     } catch (e) {
       toast.error(e.response?.data?.mensaje || 'No se pudo actualizar el usuario')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  const darDeBaja = async () => {
+    setGuardando(true)
+    try {
+      await eliminarUsuario(baja.id)
+      toast.exito(`${baja.nombre} fue dado de baja`)
+      setBaja(null)
+      cargar()
+    } catch (e) {
+      toast.error(e.response?.data?.mensaje || 'No se pudo dar de baja al usuario')
     } finally {
       setGuardando(false)
     }
@@ -254,13 +273,18 @@ export default function Usuarios() {
                       <button className="gm-pill" onClick={() => abrirPermisos(u)}>
                         Ver permisos
                       </button>
+                      {u.id !== actual?.id && (
+                        <button className="gm-pill ml-2" onClick={() => setBaja(u)}>
+                          Dar de baja
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
                 {datos.length === 0 && (
                   <tr>
                     <td colSpan={4} className="!py-12 text-center text-gray-400">
-                      Sin usuarios registrados
+                      {errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin usuarios registrados'}
                     </td>
                   </tr>
                 )}
@@ -394,6 +418,15 @@ export default function Usuarios() {
           "Ver" lo tiene automáticamente quien pueda crear, editar o eliminar en ese módulo. Los administradores tienen todos los permisos.
         </p>
       </Modal>
+
+      <ConfirmarBaja
+        abierto={!!baja}
+        titulo="Dar de baja usuario"
+        texto={baja ? `${baja.nombre} ya no podrá iniciar sesión y dejará de aparecer en la lista. Sus ventas y movimientos siguen a su nombre.` : ''}
+        procesando={guardando}
+        onCancelar={() => setBaja(null)}
+        onConfirmar={darDeBaja}
+      />
 
       <Modal abierto={modalPermiso} onCerrar={() => setModalPermiso(false)} titulo="Nuevo permiso" ancho="max-w-md">
         <div className="space-y-4">

@@ -12,6 +12,7 @@ import { useToast } from '../../context/ToastContext'
 import usePaginacion from '../../hooks/usePaginacion'
 import { getUbicacionesPorEmpresa, getUbicaciones, getProductos, traspasoResguardo } from '../../api/inventario'
 import { getEmpresas, getDirecciones } from '../../api/destinos'
+import { avisar } from '../../utils/avisoCarga'
 
 const kg = (n) =>
   Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -48,7 +49,7 @@ export default function InventarioResguardo() {
         setEmpresa(emps.data.find((e) => String(e.id) === String(empresaId)))
         setProductos(Object.fromEntries((prods.data || []).map((p) => [p.codigo, p])))
       })
-      .catch(console.error)
+      .catch(avisar('No se pudo cargar el inventario de resguardo'))
       .finally(() => setCargando(false))
   }
   useEffect(cargar, [empresaId])

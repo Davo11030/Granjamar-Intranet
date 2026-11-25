@@ -7,6 +7,7 @@ import Modal from '../../components/Modal'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import { getEmbarque, getEmbarquesPorNumero, marcarDocumentoEmbarque } from '../../api/embarques'
+import { avisar } from '../../utils/avisoCarga'
 
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 
@@ -102,7 +103,7 @@ export default function CiegoDeCarga() {
           }),
         )
       })
-      .catch(console.error)
+      .catch(avisar('No se pudo cargar el embarque'))
   }, [id])
 
   const productoDe = (bloque, codigo) => bloque.productos.find((p) => p.codigo === codigo)

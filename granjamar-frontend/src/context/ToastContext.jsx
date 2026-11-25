@@ -1,21 +1,30 @@
-import { createContext, useContext, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import { registrarAvisoError } from '../utils/avisoCarga'
 
 const ToastContext = createContext()
+
+// Contador propio: con Date.now() dos avisos en el mismo milisegundo compartían id.
+let siguienteId = 0
 
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([])
 
   const agregar = useCallback((mensaje, tipo = 'exito', duracion = 3000) => {
-    const id = Date.now()
-    setToasts(prev => [...prev, { id, mensaje, tipo }])
+    const id = ++siguienteId
+    // Si el mismo aviso ya está en pantalla (p. ej. varias listas que fallan a la vez porque el servidor
+    // está apagado), no se repite.
+    setToasts(prev => prev.some(t => t.mensaje === mensaje && t.tipo === tipo) ? prev : [...prev, { id, mensaje, tipo }])
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id))
     }, duracion)
   }, [])
 
   const exito = useCallback((m) => agregar(m, 'exito'), [agregar])
-  const error = useCallback((m) => agregar(m, 'error', 4000), [agregar])
+  const error = useCallback((m) => agregar(m, 'error', 6000), [agregar])
   const info = useCallback((m) => agregar(m, 'info'), [agregar])
+
+  // Los avisos de carga fallida (utils/avisoCarga.js) salen por aquí.
+  useEffect(() => registrarAvisoError(error), [error])
   const advertencia = useCallback((m) => agregar(m, 'advertencia', 4000), [agregar])
 
   return (

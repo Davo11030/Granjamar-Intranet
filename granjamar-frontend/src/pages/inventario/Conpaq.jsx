@@ -8,6 +8,7 @@ import Modal from '../../components/Modal'
 import usePaginacion from '../../hooks/usePaginacion'
 import { getUbicaciones, getProductos } from '../../api/inventario'
 import { getEmpresas } from '../../api/destinos'
+import { avisar } from '../../utils/avisoCarga'
 
 const kg = (n) =>
   Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -15,6 +16,7 @@ const money = (n) =>
   n == null ? '—' : `$${Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
 
 export default function Conpaq() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const [datos, setDatos] = useState([])
   const [productos, setProductos] = useState({})
   const [cargando, setCargando] = useState(true)
@@ -35,7 +37,7 @@ export default function Conpaq() {
           Object.fromEntries((prods.data || []).map((p) => [p.codigo, p])),
         )
       })
-      .catch(console.error)
+      .catch(avisar('No se pudo cargar el inventario', () => setErrorCarga(true)))
       .finally(() => setCargando(false))
   }, [])
 
@@ -147,7 +149,7 @@ export default function Conpaq() {
                   {porProducto.length === 0 && (
                     <tr>
                       <td colSpan={7} className="text-center !py-12 text-gray-400">
-                        {busqueda ? 'Sin resultados para esa búsqueda' : 'Sin existencias registradas en Conpaq'}
+                        {busqueda ? 'Sin resultados para esa búsqueda' : (errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin existencias registradas en Conpaq')}
                       </td>
                     </tr>
                   )}

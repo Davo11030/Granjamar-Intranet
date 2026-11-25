@@ -6,6 +6,7 @@ import Cargando from '../../components/Cargando'
 import Paginacion from '../../components/Paginacion'
 import { Flecha } from '../../components/HistorialTrazabilidad'
 import { getHistorialResguardo } from '../../api/inventario'
+import { avisar } from '../../utils/avisoCarga'
 const num = (n) =>  Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 // Historial de UN producto dentro de una empresa de resguardo: todos sus lotes en una sola tabla,
@@ -23,7 +24,7 @@ export default function ResguardoHistorial() {
     setCargando(true)
     getHistorialResguardo(IdEmpresa, codigo, pagina)
       .then((res) => setDatos(res.data))
-      .catch((e) => console.error('Error cargando historial de resguardo:', e))
+      .catch(avisar('No se pudo cargar el historial de resguardo'))
       .finally(() => setCargando(false))
   }, [IdEmpresa, codigo, pagina])
 

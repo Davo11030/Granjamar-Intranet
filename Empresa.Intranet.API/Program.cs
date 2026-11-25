@@ -36,6 +36,18 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = builder.Configuration["Jwt:Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
         };
+        // Un usuario dado de baja pierde el acceso de inmediato, aunque su token todavía no expire.
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async ctx =>
+            {
+                var idTexto = ctx.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                var db = ctx.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var activo = uint.TryParse(idTexto, out var id)
+                    && await db.Usuarios.AnyAsync(u => u.Id == id && u.Activo);
+                if (!activo) ctx.Fail("Usuario dado de baja");
+            }
+        };
     });
 
 builder.Services.AddAuthorization();

@@ -39,6 +39,9 @@ public class UsuariosController : ControllerBase
         if (usuario == null || !BCrypt.Net.BCrypt.Verify(request.Contrasena, usuario.Contrasena))
             return Unauthorized(new { mensaje = "Usuario o contraseña incorrectos" });
 
+        if (!usuario.Activo)
+            return Unauthorized(new { mensaje = "Este usuario fue dado de baja. Pide al administrador que lo reactive." });
+
         var (token, expiracion) = _tokenService.GenerarToken(usuario);
 
         return Ok(new LoginResponseDto
@@ -58,6 +61,7 @@ public class UsuariosController : ControllerBase
     public async Task<IActionResult> GetTodos()
     {
         var usuarios = await _context.Usuarios
+            .Where(u => u.Activo)
             .Select(u => new UsuarioDto
             {
                 Id = u.Id,
@@ -139,7 +143,7 @@ public class UsuariosController : ControllerBase
     public async Task<IActionResult> SolicitarRestablecimiento([FromBody] SolicitarRestablecimientoDto dto)
     {
         var nombre = (dto.Nombre ?? "").Trim();
-        var usuario = await _context.Usuarios.FirstOrDefaultAsync(u => u.Nombre == nombre);
+        var usuario = await _context.Usuarios.FirstOrDefaultAsync(u => u.Nombre == nombre && u.Activo);
 
         if (usuario != null)
         {
@@ -172,7 +176,7 @@ public class UsuariosController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> EstadoSolicitud([FromQuery] string nombre)
     {
-        var usuario = await _context.Usuarios.FirstOrDefaultAsync(u => u.Nombre == (nombre ?? "").Trim());
+        var usuario = await _context.Usuarios.FirstOrDefaultAsync(u => u.Nombre == (nombre ?? "").Trim() && u.Activo);
         if (usuario == null) return Ok(new EstadoSolicitudDto { Estado = "Ninguna" });
 
         var solicitud = await _context.SolicitudesContrasena
@@ -193,7 +197,7 @@ public class UsuariosController : ControllerBase
             return BadRequest(new { mensaje = "La nueva contraseña debe tener al menos 4 caracteres" });
 
         var nombre = (dto.Nombre ?? "").Trim();
-        var usuario = await _context.Usuarios.FirstOrDefaultAsync(u => u.Nombre == nombre);
+        var usuario = await _context.Usuarios.FirstOrDefaultAsync(u => u.Nombre == nombre && u.Activo);
         if (usuario == null)
             return BadRequest(new { mensaje = "No hay una solicitud aprobada para este usuario" });
 
@@ -310,8 +314,14 @@ public class UsuariosController : ControllerBase
     [AdminOnly]
     public async Task<IActionResult> Crear([FromBody] CrearUsuarioDto dto)
     {
-        var existe = await _context.Usuarios.AnyAsync(u => u.Nombre == dto.Nombre);
-        if (existe) return BadRequest(new { mensaje = "Ya existe un usuario con ese nombre" });
+        var existente = await _context.Usuarios.FirstOrDefaultAsync(u => u.Nombre == dto.Nombre);
+        if (existente != null)
+            return BadRequest(new
+            {
+                mensaje = existente.Activo
+                    ? "Ya existe un usuario con ese nombre"
+                    : "Ya existe un usuario dado de baja con ese nombre; usa otro nombre"
+            });
 
         var correo = string.IsNullOrWhiteSpace(dto.Correo) ? null : dto.Correo.Trim();
         if (correo != null && !FormatoCorreo.IsMatch(correo))
@@ -368,22 +378,52 @@ public class UsuariosController : ControllerBase
         return NoContent();
     }
 
-    // DELETE api/usuarios/5
+    // DELETE api/usuarios/5 — baja lógica: el usuario deja de poder entrar y de aparecer en la lista,
+    // pero su historial (ventas, movimientos, auditoría) se conserva con su nombre.
     [HttpDelete("{id}")]
     [Authorize]
     [AdminOnly]
     public async Task<IActionResult> Eliminar(uint id)
     {
-        var usuario = await _context.Usuarios.FindAsync(id);
+        var usuario = await _context.Usuarios.FirstOrDefaultAsync(u => u.Id == id && u.Activo);
         if (usuario == null) return NotFound();
 
-        var antes = new { usuario.Id, usuario.Nombre, usuario.Puesto };
-        _context.Usuarios.Remove(usuario);
+        if (id == this.IdUsuarioActual())
+            return BadRequest(new { mensaje = "No puedes darte de baja a ti mismo" });
+
+        if (EsPuestoAdmin(usuario.Puesto))
+        {
+            var otrosAdmins = (await _context.Usuarios
+                    .Where(u => u.Activo && u.Id != id)
+                    .Select(u => u.Puesto)
+                    .ToListAsync())
+                .Count(EsPuestoAdmin);
+            if (otrosAdmins == 0)
+                return BadRequest(new { mensaje = "No se puede dar de baja al único administrador" });
+        }
+
+        var antes = new { usuario.Id, usuario.Nombre, usuario.Puesto, usuario.Activo };
+        usuario.Activo = false;
+
+        // Las solicitudes de contraseña abiertas ya no tienen sentido.
+        var solicitudes = await _context.SolicitudesContrasena
+            .Where(s => s.IdUsuario == id && (s.Estado == "Pendiente" || s.Estado == "Aprobada"))
+            .ToListAsync();
+        foreach (var solicitud in solicitudes)
+        {
+            solicitud.Estado = "Rechazada";
+            solicitud.FechaResolucion = DateTime.UtcNow;
+            solicitud.IdUsuarioResolucion = this.IdUsuarioActual();
+        }
+
         await _context.SaveChangesAsync();
 
-        await _auditoria.RegistrarAsync("usuarios", id.ToString(), "ELIMINAR", antes, null,
-            this.IdUsuarioActual());
+        await _auditoria.RegistrarAsync("usuarios", id.ToString(), "ELIMINAR", antes,
+            new { usuario.Id, usuario.Nombre, usuario.Puesto, usuario.Activo }, this.IdUsuarioActual());
 
         return NoContent();
     }
+
+    private static bool EsPuestoAdmin(string? puesto) =>
+        puesto?.Trim().ToLowerInvariant() is "admin" or "administrador";
 }

@@ -8,8 +8,10 @@ import Modal from '../../components/Modal'
 import AgregarBoton from '../../components/AgregarBoton'
 import { useToast } from '../../context/ToastContext'
 import { getClavesSat, crearClaveSat, actualizarClaveSat } from '../../api/clavesSat'
+import { avisar } from '../../utils/avisoCarga'
 
 export default function ClavesSat() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const { puede } = useAuth()
   const toast = useToast()
   const [datos, setDatos] = useState([])
@@ -21,7 +23,7 @@ export default function ClavesSat() {
   const [form, setForm] = useState({ codigo: '', nombre: '' })
 
   const cargar = () =>
-    getClavesSat().then((r) => setDatos(r.data)).catch(console.error).finally(() => setCargando(false))
+    getClavesSat().then((r) => setDatos(r.data)).catch(avisar('No se pudieron cargar las claves SAT', () => setErrorCarga(true))).finally(() => setCargando(false))
   useEffect(() => {
     cargar()
   }, [])
@@ -93,7 +95,7 @@ export default function ClavesSat() {
                 {filtrados.length === 0 && (
                   <tr>
                     <td colSpan={3} className="!py-12 text-center text-gray-400">
-                      Sin claves SAT registradas
+                      {errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin claves SAT registradas'}
                     </td>
                   </tr>
                 )}

@@ -115,11 +115,24 @@ public async Task<IActionResult> GetTodos() =>
 
         var datosAnteriores = new { item.Id, item.Nombre, item.Rfc };
 
+        // Sus direcciones se dan de baja junto con ella; si alguna todavía tiene producto, no se permite
+        // (el inventario quedaría escondido).
+        var direcciones = await _context.Direcciones
+            .Where(d => d.IdEmpresa == id && d.Activo)
+            .ToListAsync();
+        var idsDirecciones = direcciones.Select(d => d.Id).ToList();
+        var kilos = await _context.UbicacionesProducto
+            .Where(u => idsDirecciones.Contains(u.IdDireccion) && u.CantidadKilos > 0)
+            .SumAsync(u => (decimal?)u.CantidadKilos) ?? 0;
+        if (kilos > 0)
+            return BadRequest(new { mensaje = $"No se puede dar de baja: sus direcciones todavía tienen {kilos:N2} kg en inventario." });
+
         item.Activo = false;
+        foreach (var d in direcciones) d.Activo = false;
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("empresas", id.ToString(), "ELIMINAR",
-            datosAnteriores, null, this.IdUsuarioActual());
+            datosAnteriores, new { DireccionesDadasDeBaja = direcciones.Count }, this.IdUsuarioActual());
 
         return NoContent();
     }

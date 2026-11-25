@@ -24,6 +24,7 @@ import { seleccionarUbicaciones } from '../../utils/stock'
 import { idsEmpresaPermitidos, filtrarPorEmpresasPermitidas } from '../../utils/ubicaciones'
 import { fechaHoy } from '../../utils/fecha'
 import { desgloseCambio, sugerenciasEfectivo } from '../../utils/dinero'
+import { avisar } from '../../utils/avisoCarga'
 
 const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
@@ -108,10 +109,10 @@ export default function VentaForm({ modo }) {
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
-    getProductos().then((r) => setProductos(r.data)).catch(console.error)
-    getUbicaciones().then((r) => setUbicacionesTodas(r.data)).catch(console.error)
-    getEmpresas().then((r) => setEmpresas(r.data)).catch(console.error)
-    if (esMayoreo) getClientes().then((r) => setClientes(r.data)).catch(console.error)
+    getProductos().then((r) => setProductos(r.data)).catch(avisar('No se pudieron cargar los productos'))
+    getUbicaciones().then((r) => setUbicacionesTodas(r.data)).catch(avisar('No se pudieron cargar las existencias por ubicación'))
+    getEmpresas().then((r) => setEmpresas(r.data)).catch(avisar('No se pudieron cargar las empresas'))
+    if (esMayoreo) getClientes().then((r) => setClientes(r.data)).catch(avisar('No se pudieron cargar los clientes'))
   }, [esMayoreo])
 
   // Ventas solo puede surtirse del inventario propio (Granjamar/Conpaq), nunca de

@@ -13,6 +13,7 @@ import usePaginacion from '../../hooks/usePaginacion'
 import { getEntradas, getEntrada, cambiarEstadoEntrada, getHistorialEstadoEntrada } from '../../api/entradas'
 import { abrirArchivoDocumento } from '../../api/documentos'
 import { formatearFecha, formatearFechaHora } from '../../utils/fecha'
+import { avisar } from '../../utils/avisoCarga'
 
 const ESTADOS_COMPRA = ['Solicitado', 'Pendiente por recibir', 'Pendiente por pagar', 'Completado']
 const ESTADO_COMPRA_CLASE = {
@@ -23,6 +24,7 @@ const ESTADO_COMPRA_CLASE = {
 }
 
 export default function Entradas() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const navigate = useNavigate()
   const toast = useToast()
   const { usuario, puede } = useAuth()
@@ -36,7 +38,7 @@ export default function Entradas() {
   const [detalle, setDetalle] = useState(null)
 
   const cargar = () => {
-    getEntradas().then((r) => setDatos(r.data)).catch(console.error).finally(() => setCargando(false))
+    getEntradas().then((r) => setDatos(r.data)).catch(avisar('No se pudieron cargar las entradas', () => setErrorCarga(true))).finally(() => setCargando(false))
   }
   useEffect(cargar, [])
 
@@ -170,7 +172,7 @@ export default function Entradas() {
                   {filtrados.length === 0 && (
                     <tr>
                       <td colSpan={5} className="!py-12 text-center text-gray-400">
-                        Sin entradas registradas
+                        {errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin entradas registradas'}
                       </td>
                     </tr>
                   )}

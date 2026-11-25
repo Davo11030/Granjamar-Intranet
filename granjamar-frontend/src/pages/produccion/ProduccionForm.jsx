@@ -15,6 +15,7 @@ import {
   getReporteProduccion,
 } from '../../api/produccion'
 import { fechaHoy } from '../../utils/fecha'
+import { avisar } from '../../utils/avisoCarga'
 
 const EPS = 0.001
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
@@ -104,7 +105,7 @@ export default function ProduccionForm({ modo = 'nuevo' }) {
   const [reportes, setReportes] = useState([]) // todos, para detectar que ya hay uno ese día
 
   useEffect(() => {
-    getProductos().then((r) => setProductos(r.data)).catch(console.error)
+    getProductos().then((r) => setProductos(r.data)).catch(avisar('No se pudieron cargar los productos'))
     if (!soloLectura) getProducciones().then((r) => setReportes(r.data)).catch(() => {})
   }, [soloLectura])
 
@@ -115,7 +116,7 @@ export default function ProduccionForm({ modo = 'nuevo' }) {
         setReporte(r.data)
         setFecha(String(r.data.fecha).slice(0, 10))
       })
-      .catch(console.error)
+      .catch(avisar('No se pudo cargar el reporte de producción'))
       .finally(() => setCargandoReporte(false))
   }, [existente, id])
 

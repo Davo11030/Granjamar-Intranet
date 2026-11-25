@@ -1507,6 +1507,9 @@ namespace Empresa.Intranet.Infrastructure.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<bool>("Activo")
+                        .HasColumnType("bit");
+
                     b.Property<string>("Contrasena")
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("contraseña");

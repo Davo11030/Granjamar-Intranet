@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import usePaginacion from '../../hooks/usePaginacion'
 import { getClientes, crearCliente, actualizarCliente, eliminarCliente } from '../../api/clientes'
+import { avisar } from '../../utils/avisoCarga'
 
 const FORM = { nombre: '', rfc: '', telefono: '', calle: '', colonia: '', municipio: '', estado: '', codigoPostal: '' }
 
@@ -18,6 +19,7 @@ const direccionTexto = (c) =>
   [c.calle, c.colonia, c.municipio, c.estado, c.codigoPostal ? `C.P. ${c.codigoPostal}` : null].filter(Boolean).join(', ')
 
 export default function Clientes() {
+  const [errorCarga, setErrorCarga] = useState(false)
   const { usuario, puede } = useAuth()
   const toast = useToast()
   const [datos, setDatos] = useState([])
@@ -30,7 +32,7 @@ export default function Clientes() {
   const [form, setForm] = useState({ ...FORM })
 
   const cargar = () =>
-    getClientes().then((r) => setDatos(r.data)).catch(console.error).finally(() => setCargando(false))
+    getClientes().then((r) => setDatos(r.data)).catch(avisar('No se pudieron cargar los clientes', () => setErrorCarga(true))).finally(() => setCargando(false))
   useEffect(() => {
     cargar()
   }, [])
@@ -173,7 +175,7 @@ export default function Clientes() {
                   {filtrados.length === 0 && (
                     <tr>
                       <td colSpan={5} className="!py-12 text-center text-gray-400">
-                        {busqueda ? 'Sin resultados para esa búsqueda' : 'Sin clientes registrados'}
+                        {busqueda ? 'Sin resultados para esa búsqueda' : (errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin clientes registrados')}
                       </td>
                     </tr>
                   )}
