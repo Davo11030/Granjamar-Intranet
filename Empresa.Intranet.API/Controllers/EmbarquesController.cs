@@ -130,6 +130,7 @@ public class EmbarquesController : ControllerBase
             .Include(e => e.SolicitudDetalles).ThenInclude(d => d.Existencia).ThenInclude(ex => ex.Producto).ThenInclude(p => p.PesoCaja)
             .Include(e => e.SolicitudDetalles).ThenInclude(d => d.Existencia).ThenInclude(ex => ex.DocumentoOrigen).ThenInclude(doc => doc!.DocumentoTipo)
             .Include(e => e.SolicitudTarimas)
+            .Include(e => e.CiegoTarimas)
             .Include(e => e.RtDetalles).ThenInclude(d => d.Documentos);
 
     private static object Proyectar(Embarque e) => new
@@ -191,13 +192,15 @@ public class EmbarquesController : ControllerBase
             FechaDocumento = d.Existencia.DocumentoOrigen != null ? (DateTime?)d.Existencia.DocumentoOrigen.Fecha : null
         }),
         // Las tarimas físicas capturadas en la Solicitud (por producto y ubicación de origen).
-        SolicitudTarimas = e.SolicitudTarimas.Select(t => new
+        SolicitudTarimas = e.SolicitudTarimas.OrderBy(t => t.Id).Select(t => new
         {
             t.CodigoProducto,
             t.IdDireccion,
             t.NumTarimas,
             t.CajasPorTarima
         }),
+        // El Ciego de carga guardado: qué producto lleva cada tarima, en orden (vacío si no se ha capturado).
+        CiegoTarimas = e.CiegoTarimas.OrderBy(t => t.Posicion).Select(t => new { t.Posicion, t.CodigoProducto, t.Cajas }),
         RtDetalles = e.RtDetalles.Select(d => new
         {
             d.Id,
@@ -577,6 +580,7 @@ public class EmbarquesController : ControllerBase
             .Include(x => x.HistorialMovimiento)
             .Include(x => x.SolicitudDetalles).ThenInclude(d => d.Existencia)
             .Include(x => x.SolicitudTarimas)
+            .Include(x => x.CiegoTarimas)
             .Include(x => x.Direccion).ThenInclude(d => d!.Empresa)
             .Include(x => x.Cliente)
             .Include(x => x.DetalleTransporte).ThenInclude(dt => dt!.Chofer)
@@ -590,7 +594,8 @@ public class EmbarquesController : ControllerBase
         void Falta(string texto) { if (!faltantes.Contains(texto)) faltantes.Add(texto); }
         if (Texto(actual.Numero) == null) Falta("Número de embarque");
 
-        var codigos = hermanos.SelectMany(h => h.SolicitudTarimas.Select(t => t.CodigoProducto)).Distinct().ToList();
+        var codigos = hermanos.SelectMany(h => h.SolicitudTarimas.Select(t => t.CodigoProducto)
+            .Concat(h.CiegoTarimas.Select(t => t.CodigoProducto))).Distinct().ToList();
         var productos = await _context.Productos.AsNoTracking()
             .Include(p => p.Especie).Include(p => p.Marca).Include(p => p.Talla).Include(p => p.PesoCaja)
             .Include(p => p.Descripciones).ThenInclude(d => d.Presentacion)
@@ -613,6 +618,29 @@ public class EmbarquesController : ControllerBase
             if (sucursal == null) Falta($"Sucursal (ciudad) del destino{(hermanos.Count > 1 ? $" {indice + 1}" : "")}");
             else if (!sucursales.Contains(sucursal)) sucursales.Add(sucursal);
             if (h.SolicitudTarimas.Count == 0) { Falta($"Tarimas{nombreDestino} (la Solicitud no se ha capturado)"); continue; }
+
+            // Ciego ya capturado: las tarimas salen en el orden en que se acomodaron, con el producto que se le asignó a
+            // cada una. El peso por caja de un producto de peso variado se reparte sobre sus kilos de la Solicitud.
+            if (h.CiegoTarimas.Count > 0)
+            {
+                foreach (var t in h.CiegoTarimas.OrderBy(t => t.Posicion))
+                {
+                    productos.TryGetValue(t.CodigoProducto, out var p);
+                    var peso = p?.PesoCaja?.Peso ?? 0;
+                    if (peso <= 0)
+                    {
+                        var cajasProducto = h.CiegoTarimas.Where(x => x.CodigoProducto == t.CodigoProducto).Sum(x => x.Cajas);
+                        var kilosProducto = h.SolicitudDetalles.Where(d => d.Existencia.CodigoProducto == t.CodigoProducto).Sum(d => d.Kilos);
+                        if (cajasProducto > 0) peso = kilosProducto / cajasProducto;
+                    }
+                    if (peso <= 0) Falta($"Peso por caja de {t.CodigoProducto} (no se pueden calcular los kilos de sus tarimas)");
+                    var kilos = Math.Round(t.Cajas * peso, 2);
+                    totalKilos += kilos;
+                    filas.Add(new { Tarima = ++numero, Producto = p != null ? DescripcionHoja(p) : t.CodigoProducto, Cajas = t.Cajas, Kilos = kilos, Destino = sucursal, Grupo = indice });
+                }
+                continue;
+            }
+            // Sin ciego capturado todavía (o de antes de que se guardara): las tarimas en el orden de la Solicitud.
 
             // Las tarimas de un mismo producto y ubicación van juntas, en el orden en que se capturaron.
             var grupos = h.SolicitudTarimas.OrderBy(t => t.Id).GroupBy(t => (t.CodigoProducto, t.IdDireccion)).ToList();
@@ -921,7 +949,11 @@ public class EmbarquesController : ControllerBase
         if (dto.IdDireccion != null && dto.Detalles.Any(d => d.IdDireccion == dto.IdDireccion))
             return "El destino no puede ser el mismo lugar de origen: un embarque no se envía a sí mismo";
         if (dto.Detalles.Count == 0) return "Agrega al menos un producto";
+        if (dto.Detalles.Any(d => string.IsNullOrWhiteSpace(d.CodigoProducto))) return "Selecciona el producto de cada renglón";
         if (dto.Detalles.Any(d => d.Kilos <= 0)) return "Los kilos de cada producto deben ser mayores a 0";
+        // El origen de cada producto es de dónde se tomará: la Solicitud solo puede elegir lotes de esa ubicación.
+        var sinOrigen = dto.Detalles.FirstOrDefault(d => d.IdDireccion == 0);
+        if (sinOrigen != null) return $"{sinOrigen.CodigoProducto}: indica de qué ubicación se tomará el producto (Origen)";
         return null;
     }
 
@@ -950,34 +982,57 @@ public class EmbarquesController : ControllerBase
         return ("Embarque", d.Empresa != null ? $"{d.Empresa.Nombre} — {d.DireccionTexto}" : d.DireccionTexto);
     }
 
-    [HttpPost]
-    public async Task<IActionResult> Crear([FromBody] CrearEmbarqueDto dto)
+    // ---------- Requisición: alta, edición y baja de destinos ----------
+    // Los pasos que escriben en la base no abren ni cierran transacción: los usan tanto los endpoints de un solo destino
+    // (Crear/Actualizar/Eliminar) como los de la requisición completa (CrearRequisicion/ActualizarRequisicion), que
+    // guardan todos los destinos en una sola transacción: o queda la requisición entera o no queda nada.
+
+    private Task<TipoMovimiento?> TipoMovimientoEmbarqueAsync() =>
+        _context.TiposMovimiento.FirstOrDefaultAsync(t => t.Nombre.ToLower().Contains("embarque"));
+
+    // Revisa que existan los productos y que cada ubicación de origen tenga el stock que se pide, sumando lo de TODOS los
+    // destinos que salen de la misma ubicación (cada destino por separado podía caber y juntos pedir más de lo que hay).
+    private async Task<string?> ValidarStockAsync(IEnumerable<CrearDetalleEmbarqueDto> detalles)
     {
-        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "crear"))
-            return this.SinPermiso();
-        var errorRequisicion = ValidarRequisicion(dto) ?? await ValidarDestinoAsync(dto.IdDireccion);
-        if (errorRequisicion != null) return BadRequest(new { mensaje = errorRequisicion });
-        var tipoMovimiento = await _context.TiposMovimiento
-            .FirstOrDefaultAsync(t => t.Nombre.ToLower().Contains("embarque"));
-        if (tipoMovimiento == null)
-            return BadRequest(new { mensaje = "No existe tipo de movimiento 'Embarque'" });
-
-        // Validar todos los renglones antes de escribir nada (antes se validaban cuando el
-        // historial y el transporte ya estaban guardados, y quedaban huérfanos).
-        foreach (var detalle in dto.Detalles)
+        foreach (var g in detalles.GroupBy(d => (d.CodigoProducto, d.IdDireccion)))
         {
-            var producto = await _context.Productos.FindAsync(detalle.CodigoProducto);
-            if (producto == null)
-                return BadRequest(new { mensaje = $"No existe el producto {detalle.CodigoProducto}" });
-
-            var disponible = await StockDisponibleEnDireccion(detalle.CodigoProducto, detalle.IdDireccion);
-            if (disponible < detalle.Kilos)
-                return BadRequest(new { mensaje = $"Stock insuficiente en esa ubicación. Disponible: {disponible} kg" });
+            if (!await _context.Productos.AnyAsync(p => p.Codigo == g.Key.CodigoProducto))
+                return $"No existe el producto {g.Key.CodigoProducto}";
+            var pedido = g.Sum(d => d.Kilos);
+            var disponible = await StockDisponibleEnDireccion(g.Key.CodigoProducto, g.Key.IdDireccion);
+            if (disponible < pedido)
+                return $"{g.Key.CodigoProducto}: stock insuficiente en esa ubicación. Disponible: {disponible} kg, pedido: {pedido} kg";
         }
+        return null;
+    }
 
-        // Todo lo de la base va en una transacción: embarque, pedido de consignación y auditoría
-        // quedan juntos o no queda nada.
-        await using var tx = await _context.Database.BeginTransactionAsync();
+    // Solo un guardado de requisición a la vez decide números de embarque: el candado de SQL Server dura lo que la
+    // transacción, así dos capturas simultáneas no pueden tomar el mismo número.
+    private Task BloquearNumeracionAsync() =>
+        _context.Database.ExecuteSqlRawAsync(@"
+DECLARE @r int;
+EXEC @r = sp_getapplock @Resource = 'embarques-numero', @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000;
+IF @r < 0 THROW 50000, 'No se pudo reservar el número de embarque, intenta de nuevo', 1;");
+
+    // El siguiente número de embarque del año (el conteo reinicia cada año). Si ese número lo sigue usando un embarque
+    // activo de otro año se salta, para que dos requisiciones distintas nunca compartan número.
+    private async Task<string> SiguienteNumeroAsync()
+    {
+        var inicioAnio = new DateTime(DateTime.UtcNow.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var delAnio = await _context.Embarques
+            .Where(e => e.Numero != null && e.HistorialMovimiento.FechaRegistro >= inicioAnio)
+            .Select(e => e.Numero!).ToListAsync();
+        var enUso = (await _context.Embarques.Where(e => e.Activo && e.Numero != null).Select(e => e.Numero!).ToListAsync())
+            .Select(n => n.Trim()).ToHashSet();
+        var siguiente = delAnio.Select(n => int.TryParse(n.Trim(), out var x) ? x : 0).DefaultIfEmpty(0).Max() + 1;
+        while (enUso.Contains(siguiente.ToString())) siguiente++;
+        return siguiente.ToString();
+    }
+
+    // Da de alta un destino (un embarque): historial, transporte, renglones planeados, pedido de consignación y
+    // auditoría. No valida ni abre transacción: eso lo hace quien lo llama.
+    private async Task<Embarque> CrearEmbarqueAsync(CrearEmbarqueDto dto, TipoMovimiento tipoMovimiento)
+    {
         var historial = new HistorialMovimiento
         {
             FechaRegistro = DateTime.UtcNow,
@@ -1043,27 +1098,264 @@ public class EmbarquesController : ControllerBase
         var detallesTexto = await ResolverDetalles(detallesCreados);
         await _auditoria.RegistrarAsync("embarque", embarque.Id.ToString(), "CREAR", null,
             await SnapshotEmbarque(embarque, detallesTexto), this.IdUsuarioActual());
-        await tx.CommitAsync();
-
-        return CreatedAtAction(nameof(GetPorId), new { id = embarque.Id }, new { embarque.Id });
+        return embarque;
     }
 
-    // PUT api/embarques/5/estado — cambia solo el estado (ej. marcar completado), sin tocar
-    // detalles ni inventario.
+    [HttpPost]
+    public async Task<IActionResult> Crear([FromBody] CrearEmbarqueDto dto)
+    {
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "crear"))
+            return this.SinPermiso();
+        var errorRequisicion = ValidarRequisicion(dto) ?? await ValidarDestinoAsync(dto.IdDireccion);
+        if (errorRequisicion != null) return BadRequest(new { mensaje = errorRequisicion });
+        var tipoMovimiento = await TipoMovimientoEmbarqueAsync();
+        if (tipoMovimiento == null)
+            return BadRequest(new { mensaje = "No existe tipo de movimiento 'Embarque'" });
+        var errorStock = await ValidarStockAsync(dto.Detalles);
+        if (errorStock != null) return BadRequest(new { mensaje = errorStock });
+
+        // Todo lo de la base va en una transacción: embarque, pedido de consignación y auditoría
+        // quedan juntos o no queda nada.
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        dto.Numero = Texto(dto.Numero);
+        if (dto.Numero == null)
+        {
+            await BloquearNumeracionAsync();
+            dto.Numero = await SiguienteNumeroAsync();
+        }
+        var embarque = await CrearEmbarqueAsync(dto, tipoMovimiento);
+        await tx.CommitAsync();
+
+        return CreatedAtAction(nameof(GetPorId), new { id = embarque.Id }, new { embarque.Id, embarque.Numero });
+    }
+
+    // POST api/embarques/requisicion — crea la requisición completa: un embarque por destino, todos con el mismo
+    // número y transporte, en una sola transacción. Si el número viene vacío lo asigna el servidor.
+    [HttpPost("requisicion")]
+    public Task<IActionResult> CrearRequisicion([FromBody] GuardarRequisicionDto dto) => GuardarRequisicionAsync(null, dto);
+
+    // PUT api/embarques/5/requisicion — reemplaza la requisición a la que pertenece el embarque 5 (todos los destinos con
+    // su mismo número): actualiza los que traen IdEmbarque, crea los que no y da de baja los que ya no vienen.
+    [HttpPut("{id}/requisicion")]
+    public Task<IActionResult> ActualizarRequisicion(uint id, [FromBody] GuardarRequisicionDto dto) => GuardarRequisicionAsync(id, dto);
+
+    private async Task<IActionResult> GuardarRequisicionAsync(uint? id, GuardarRequisicionDto dto)
+    {
+        var idUsuario = this.IdUsuarioActual();
+        if (dto.Destinos.Count == 0) return BadRequest(new { mensaje = "Agrega al menos un destino con productos" });
+
+        // Los destinos que ya tiene esta requisición (solo al editar).
+        Embarque? referencia = null;
+        var actuales = new List<Embarque>();
+        if (id != null)
+        {
+            referencia = await _context.Embarques.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id && e.Activo);
+            if (referencia == null) return NotFound();
+            var numeroReferencia = referencia.Numero;
+            actuales = await _context.Embarques
+                .Include(e => e.HistorialMovimiento).ThenInclude(h => h.DetallesMovimiento)
+                .Include(e => e.SolicitudDetalles)
+                .Where(e => e.Activo && (numeroReferencia == null ? e.Id == id : e.Numero == numeroReferencia))
+                .ToListAsync();
+        }
+
+        var editados = dto.Destinos.Where(d => d.IdEmbarque != null).ToList();
+        if (editados.Any(d => actuales.All(a => a.Id != d.IdEmbarque)))
+            return BadRequest(new { mensaje = "Uno de los destinos no pertenece a esta requisición; recarga la pantalla" });
+        if (editados.GroupBy(d => d.IdEmbarque).Any(g => g.Count() > 1))
+            return BadRequest(new { mensaje = "Un destino viene repetido; recarga la pantalla" });
+        var aEliminar = actuales.Where(a => editados.All(d => d.IdEmbarque != a.Id)).ToList();
+
+        // Permisos: editar la requisición, más crear si agrega destinos y eliminar si quita alguno.
+        if (id != null && !await _permisoService.TienePermisoAsync(idUsuario, "embarques", "editar"))
+            return this.SinPermiso();
+        if (dto.Destinos.Any(d => d.IdEmbarque == null) && !await _permisoService.TienePermisoAsync(idUsuario, "embarques", "crear"))
+            return this.SinPermiso();
+        if (aEliminar.Count > 0 && !await _permisoService.TienePermisoAsync(idUsuario, "embarques", "eliminar"))
+            return this.SinPermiso();
+
+        CrearEmbarqueDto Armar(DestinoRequisicionDto d, string? numero)
+        {
+            var actual = actuales.FirstOrDefault(a => a.Id == d.IdEmbarque);
+            return new CrearEmbarqueDto
+            {
+                IdUsuario = idUsuario,
+                Numero = numero,
+                IdDireccion = d.IdDireccion,
+                IdCliente = d.IdCliente,
+                IdDireccionOrigen = dto.IdDireccionOrigen,
+                Transporte = dto.Transporte,
+                Detalles = d.Detalles,
+                // Las rutas de archivos no se capturan en la Requisición: se conservan las que ya tenga el destino.
+                RutaCiego = actual?.RutaCiego,
+                RutaRequisision = actual?.RutaRequisision,
+                RutaRt = actual?.RutaRt,
+                RutaSolicitud = actual?.RutaSolicitud
+            };
+        }
+
+        // Validar TODO antes de escribir nada.
+        foreach (var (d, i) in dto.Destinos.Select((d, i) => (d, i)))
+        {
+            var actual = actuales.FirstOrDefault(a => a.Id == d.IdEmbarque);
+            var error = ValidarRequisicion(Armar(d, null)) ?? await ValidarDestinoAsync(d.IdDireccion, actual?.IdDireccion);
+            if (error != null)
+                return BadRequest(new { mensaje = dto.Destinos.Count > 1 ? $"Destino {i + 1}: {error}" : error });
+        }
+        var errorStock = await ValidarStockAsync(dto.Destinos.SelectMany(d => d.Detalles));
+        if (errorStock != null) return BadRequest(new { mensaje = errorStock });
+        var tipoMovimiento = await TipoMovimientoEmbarqueAsync();
+        if (tipoMovimiento == null)
+            return BadRequest(new { mensaje = "No existe tipo de movimiento 'Embarque'" });
+
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        await BloquearNumeracionAsync();
+
+        // El número: el que se escribió, o el que ya tenía la requisición, o el siguiente del año. Nunca uno que ya use
+        // otra requisición (mismo número = mismo embarque para Solicitud, RT, Ciego y Carta).
+        var numero = Texto(dto.Numero) ?? Texto(referencia?.Numero) ?? await SiguienteNumeroAsync();
+        var idsPropios = actuales.Select(a => a.Id).ToList();
+        if (await _context.Embarques.AnyAsync(e => e.Activo && e.Numero == numero && !idsPropios.Contains(e.Id)))
+            return Conflict(new { mensaje = $"El número \"{numero}\" ya lo usa otra requisición. Si quieres agregarle un destino a esa, ábrela y edítala ahí." });
+
+        foreach (var e in aEliminar)
+            await EliminarEmbarqueAsync(e);
+
+        var ids = new List<uint>();
+        foreach (var d in dto.Destinos)
+        {
+            var actual = actuales.FirstOrDefault(a => a.Id == d.IdEmbarque);
+            if (actual == null)
+                ids.Add((await CrearEmbarqueAsync(Armar(d, numero), tipoMovimiento)).Id);
+            else
+            {
+                await ActualizarEmbarqueAsync(actual, Armar(d, numero), tipoMovimiento);
+                ids.Add(actual.Id);
+            }
+        }
+        await tx.CommitAsync();
+
+        return Ok(new { Numero = numero, Ids = ids, Eliminados = aEliminar.Select(e => e.Id) });
+    }
+
+    // PUT api/embarques/5/estado — cambia solo el estado (ej. marcar completado), sin tocar detalles ni inventario. Se
+    // aplica a todos los destinos del mismo número de embarque: para el usuario son un solo embarque, y la lista lo
+    // muestra Completado solo cuando todos lo están.
     [HttpPut("{id}/estado")]
     public async Task<IActionResult> CambiarEstado(uint id, [FromBody] CambiarEstadoEmbarqueDto dto)
     {
         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
             return this.SinPermiso();
+        if (dto.Estado != "En proceso" && dto.Estado != "Completado")
+            return BadRequest(new { mensaje = "Estado inválido" });
 
-        var embarque = await _context.Embarques.FirstOrDefaultAsync(e => e.Id == id && e.Activo);
+        var embarque = await _context.Embarques.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id && e.Activo);
         if (embarque == null) return NotFound();
+        var numero = embarque.Numero;
+        var hermanos = await _context.Embarques
+            .Where(e => e.Activo && (numero == null ? e.Id == id : e.Numero == numero))
+            .ToListAsync();
 
-        var antes = new { embarque.Estado };
-        embarque.Estado = dto.Estado;
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        foreach (var h in hermanos.Where(h => h.Estado != dto.Estado))
+        {
+            var antes = new { h.Estado };
+            h.Estado = dto.Estado;
+            await _auditoria.RegistrarAsync("embarque", h.Id.ToString(), "MODIFICAR", antes, new { h.Estado }, this.IdUsuarioActual());
+        }
         await _context.SaveChangesAsync();
+        await tx.CommitAsync();
 
-        await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR", antes, new { embarque.Estado }, this.IdUsuarioActual());
+        return NoContent();
+    }
+
+    // Las tarimas que la Solicitud de un destino definió, una por tarima física y en el orden en que se capturaron:
+    // (producto, cajas). Solicitudes guardadas antes de que se registraran las tarimas se leen de sus renglones por lote.
+    private static List<(string Codigo, decimal Cajas)> TarimasDeSolicitud(Embarque e)
+    {
+        var lista = new List<(string, decimal)>();
+        if (e.SolicitudTarimas.Count > 0)
+        {
+            foreach (var t in e.SolicitudTarimas.OrderBy(t => t.Id))
+                for (var i = 0; i < t.NumTarimas; i++) lista.Add((t.CodigoProducto, t.CajasPorTarima));
+        }
+        else
+        {
+            foreach (var d in e.SolicitudDetalles.OrderBy(d => d.Id))
+                for (var i = 0; i < d.NumTarimas; i++) lista.Add((d.Existencia.CodigoProducto, d.CajasPorTarima));
+        }
+        return lista;
+    }
+
+    // PUT api/embarques/5/ciego — guarda el Ciego de carga de todo el número de embarque: por cada destino, qué producto
+    // lleva cada tarima, en orden. Cada destino debe quedar con exactamente las tarimas de su Solicitud. Las cajas de
+    // cada tarima salen de la Solicitud (la 1a tarima de un producto lleva las cajas de su 1a tarima, etc.). Todos los
+    // destinos quedan con el ciego completo en el mismo guardado.
+    [HttpPut("{id}/ciego")]
+    public async Task<IActionResult> GuardarCiego(uint id, [FromBody] GuardarCiegoDto dto)
+    {
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
+            return this.SinPermiso();
+
+        var actual = await _context.Embarques.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id && e.Activo);
+        if (actual == null) return NotFound();
+        var numero = actual.Numero;
+        var hermanos = await _context.Embarques
+            .Include(e => e.SolicitudTarimas)
+            .Include(e => e.SolicitudDetalles).ThenInclude(d => d.Existencia)
+            .Include(e => e.CiegoTarimas)
+            .Where(e => e.Activo && (numero == null ? e.Id == id : e.Numero == numero))
+            .OrderBy(e => e.Id)
+            .AsSplitQuery()
+            .ToListAsync();
+
+        if (dto.Destinos.Select(d => d.IdEmbarque).Distinct().Count() != dto.Destinos.Count
+            || hermanos.Count != dto.Destinos.Count
+            || hermanos.Any(h => dto.Destinos.All(d => d.IdEmbarque != h.Id)))
+            return BadRequest(new { mensaje = "Los destinos no coinciden con los de este embarque; recarga la pantalla" });
+
+        var nuevas = new List<CiegoTarima>();
+        foreach (var (h, indice) in hermanos.Select((h, i) => (h, i)))
+        {
+            var donde = hermanos.Count > 1 ? $" (Destino {indice + 1})" : "";
+            var esperadas = TarimasDeSolicitud(h);
+            if (esperadas.Count == 0)
+                return BadRequest(new { mensaje = $"La Solicitud{donde} no tiene tarimas todavía" });
+            var asignadas = dto.Destinos.First(d => d.IdEmbarque == h.Id).Tarimas;
+            if (asignadas.Any(string.IsNullOrWhiteSpace))
+                return BadRequest(new { mensaje = $"Asigna un producto a cada tarima{donde}" });
+            foreach (var codigo in esperadas.Select(t => t.Codigo).Concat(asignadas).Distinct())
+            {
+                var pide = esperadas.Count(t => t.Codigo == codigo);
+                var hay = asignadas.Count(c => c == codigo);
+                if (pide != hay)
+                    return BadRequest(new { mensaje = $"{codigo}{donde}: la Solicitud pide {pide} tarima(s) y asignaste {hay}" });
+            }
+
+            var colas = esperadas.GroupBy(t => t.Codigo).ToDictionary(g => g.Key, g => new Queue<decimal>(g.Select(t => t.Cajas)));
+            for (var i = 0; i < asignadas.Count; i++)
+                nuevas.Add(new CiegoTarima
+                {
+                    IdEmbarque = h.Id,
+                    Posicion = i + 1,
+                    CodigoProducto = asignadas[i],
+                    Cajas = colas[asignadas[i]].Dequeue()
+                });
+        }
+
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        foreach (var h in hermanos)
+        {
+            var antes = new { h.CiegoCompleto, Tarimas = h.CiegoTarimas.OrderBy(t => t.Posicion).Select(t => t.CodigoProducto).ToList() };
+            _context.CiegoTarimas.RemoveRange(h.CiegoTarimas);
+            h.CiegoCompleto = true;
+            await _auditoria.RegistrarAsync("embarque", h.Id.ToString(), "MODIFICAR", new { Ciego = antes },
+                new { Ciego = new { h.CiegoCompleto, Tarimas = nuevas.Where(t => t.IdEmbarque == h.Id).Select(t => t.CodigoProducto).ToList() } },
+                this.IdUsuarioActual());
+        }
+        _context.CiegoTarimas.AddRange(nuevas);
+        await _context.SaveChangesAsync();
+        await tx.CommitAsync();
 
         return NoContent();
     }
@@ -1104,8 +1396,9 @@ public class EmbarquesController : ControllerBase
 
         var embarque = await _context.Embarques
             .Include(e => e.HistorialMovimiento).ThenInclude(h => h.DetallesMovimiento).ThenInclude(d => d.Existencia)
-            .Include(e => e.SolicitudDetalles)
+            .Include(e => e.SolicitudDetalles).ThenInclude(d => d.Existencia)
             .Include(e => e.SolicitudTarimas)
+            .Include(e => e.CiegoTarimas)
             .FirstOrDefaultAsync(e => e.Id == id && e.Activo);
         if (embarque == null) return NotFound();
 
@@ -1120,13 +1413,26 @@ public class EmbarquesController : ControllerBase
             .GroupBy(x => x.Codigo!)
             .ToDictionary(g => g.Key, g => g.Sum(x => x.Kilos));
 
-        // Las tarimas físicas capturadas deben ser de productos que esta requisición pidió.
+        // De qué ubicación pidió la Requisición cada producto: los lotes de la Solicitud deben salir de ahí. Un producto
+        // con algún renglón viejo sin ubicación (requisiciones anteriores a que se pidiera el origen) no se restringe.
+        var origenesPorProducto = embarque.HistorialMovimiento.DetallesMovimiento
+            .Select(d => new { Codigo = d.Existencia != null ? d.Existencia.CodigoProducto : d.CodigoProducto, d.IdDireccion })
+            .Where(x => x.Codigo != null)
+            .GroupBy(x => x.Codigo!)
+            .Where(g => g.All(x => x.IdDireccion != null))
+            .ToDictionary(g => g.Key, g => g.Select(x => x.IdDireccion!.Value).ToHashSet());
+        bool OrigenPermitido(string cod, uint dir) =>
+            !origenesPorProducto.TryGetValue(cod, out var origenes) || origenes.Contains(dir);
+
+        // Las tarimas físicas capturadas deben ser de productos que esta requisición pidió, desde el origen que pidió.
         foreach (var t in dto.Tarimas)
         {
             if (t.NumTarimas <= 0 || t.CajasPorTarima <= 0)
                 return BadRequest(new { mensaje = "Las tarimas (enteras) y las cajas por tarima deben ser mayores a 0" });
             if (!pedidosPorProducto.ContainsKey(t.CodigoProducto))
                 return BadRequest(new { mensaje = $"El producto {t.CodigoProducto} no está en la requisición de este embarque" });
+            if (!OrigenPermitido(t.CodigoProducto, t.IdDireccion))
+                return BadRequest(new { mensaje = $"{t.CodigoProducto}: la requisición no pidió este producto de esa ubicación" });
         }
 
         // 1) Devolver, solo en memoria todavía (nada se guarda hasta el final), el stock que la
@@ -1168,6 +1474,8 @@ public class EmbarquesController : ControllerBase
 
             if (!pedidosPorProducto.ContainsKey(existencia.CodigoProducto))
                 return BadRequest(new { mensaje = $"El producto {existencia.CodigoProducto} no está en la requisición de este embarque" });
+            if (!OrigenPermitido(existencia.CodigoProducto, d.IdDireccion))
+                return BadRequest(new { mensaje = $"{existencia.CodigoProducto}: el lote debe salir de la ubicación que se indicó en la requisición" });
 
             var ubicacion = await _context.UbicacionesProducto
                 .FirstOrDefaultAsync(u => u.IdExistencia == d.IdExistencia && u.IdDireccion == d.IdDireccion);
@@ -1240,6 +1548,17 @@ public class EmbarquesController : ControllerBase
                 LoteEspecificaciones = d.LoteEspecificaciones
             });
         }
+        // Si cambian las tarimas, el Ciego de carga que se armó con las anteriores ya no corresponde: se borra y vuelve a
+        // quedar pendiente. Volver a guardar la Solicitud con las mismas tarimas no lo toca.
+        var tarimasAntes = TarimasDeSolicitud(embarque);
+        var tarimasDespues = dto.Tarimas.SelectMany(t => Enumerable.Repeat((t.CodigoProducto, t.CajasPorTarima), Math.Max(t.NumTarimas, 0))).ToList();
+        var ciegoInvalido = !tarimasAntes.SequenceEqual(tarimasDespues);
+        if (ciegoInvalido && (embarque.CiegoCompleto || embarque.CiegoTarimas.Count > 0))
+        {
+            _context.CiegoTarimas.RemoveRange(embarque.CiegoTarimas);
+            embarque.CiegoCompleto = false;
+        }
+
         // Las tarimas físicas se reemplazan junto con los renglones (mismo guardado).
         _context.SolicitudTarimas.RemoveRange(embarque.SolicitudTarimas);
         foreach (var t in dto.Tarimas)
@@ -1349,51 +1668,14 @@ public class EmbarquesController : ControllerBase
         return NoContent();
     }
 
-    [HttpPut("{id}")]
-    public async Task<IActionResult> Actualizar(uint id, [FromBody] CrearEmbarqueDto dto)
+    // Reemplaza los renglones planeados, el destino y el transporte de un embarque ya existente (cargado con
+    // HistorialMovimiento.DetallesMovimiento). No valida ni abre transacción: eso lo hace quien lo llama.
+    private async Task ActualizarEmbarqueAsync(Embarque embarque, CrearEmbarqueDto dto, TipoMovimiento tipoMovimiento)
     {
-        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
-            return this.SinPermiso();
-        var errorRequisicion = ValidarRequisicion(dto);
-        if (errorRequisicion != null) return BadRequest(new { mensaje = errorRequisicion });
-        var embarque = await _context.Embarques
-            .Include(e => e.HistorialMovimiento)
-                .ThenInclude(h => h.DetallesMovimiento)
-            .FirstOrDefaultAsync(e => e.Id == id && e.Activo);
-
-        if (embarque == null) return NotFound();
-
-        // Un embarque viejo que ya iba a una de esas bodegas conserva su destino al editarlo; no se puede elegir uno nuevo.
-        var errorDestino = await ValidarDestinoAsync(dto.IdDireccion, embarque.IdDireccion);
-        if (errorDestino != null) return BadRequest(new { mensaje = errorDestino });
-
-        var tipoMovimiento = await _context.TiposMovimiento
-            .FirstOrDefaultAsync(t => t.Nombre.ToLower().Contains("embarque"));
-        if (tipoMovimiento == null)
-            return BadRequest(new { mensaje = "No existe tipo de movimiento 'Embarque'" });
-
         var datosAnteriores = await SnapshotEmbarque(embarque, await ResolverDetalles(embarque.HistorialMovimiento.DetallesMovimiento));
 
-        // Validar TODO primero, sin tocar la base de datos todavía — si algún detalle nuevo no
-        // pasa (producto inexistente, stock insuficiente), se corta aquí sin haber borrado nada
-        // de lo viejo. Antes esto se validaba después de un RemoveRange+SaveChangesAsync ya
-        // persistido, así que una validación fallida dejaba el embarque sin ningún detalle
-        // (bug real encontrado en vivo — un PUT rechazado SÍ alteraba datos).
-        foreach (var detalle in dto.Detalles)
-        {
-            var producto = await _context.Productos.FindAsync(detalle.CodigoProducto);
-            if (producto == null)
-                return BadRequest(new { mensaje = $"No existe el producto {detalle.CodigoProducto}" });
-
-            var disponible = await StockDisponibleEnDireccion(detalle.CodigoProducto, detalle.IdDireccion);
-            if (disponible < detalle.Kilos)
-                return BadRequest(new { mensaje = $"Stock insuficiente en esa ubicación. Disponible: {disponible} kg" });
-        }
-
-        // Todo válido: recién aquí se reemplazan los renglones planeados (la Requisición no
-        // descuenta stock real — ver Crear — así que no hay nada que revertir, solo reemplazar).
-        // Todo en una transacción: si algo falla el embarque queda como estaba.
-        await using var tx = await _context.Database.BeginTransactionAsync();
+        // La Requisición no descuenta stock real (ver CrearEmbarqueAsync), así que no hay nada que revertir, solo
+        // reemplazar.
         _context.DetallesMovimiento.RemoveRange(embarque.HistorialMovimiento.DetallesMovimiento);
 
         // Actualizar transporte si viene
@@ -1454,10 +1736,65 @@ public class EmbarquesController : ControllerBase
             dto.Detalles.Select(d => new LineaPedido(d.CodigoProducto, null, d.Kilos, d.IdDireccion)));
 
         var datosNuevos = await SnapshotEmbarque(embarque, await ResolverDetalles(detallesNuevos));
-        await _auditoria.RegistrarAsync("embarque", id.ToString(), "MODIFICAR", datosAnteriores, datosNuevos, this.IdUsuarioActual());
+        await _auditoria.RegistrarAsync("embarque", embarque.Id.ToString(), "MODIFICAR", datosAnteriores, datosNuevos, this.IdUsuarioActual());
+    }
+
+    [HttpPut("{id}")]
+    public async Task<IActionResult> Actualizar(uint id, [FromBody] CrearEmbarqueDto dto)
+    {
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
+            return this.SinPermiso();
+        var errorRequisicion = ValidarRequisicion(dto);
+        if (errorRequisicion != null) return BadRequest(new { mensaje = errorRequisicion });
+        var embarque = await _context.Embarques
+            .Include(e => e.HistorialMovimiento)
+                .ThenInclude(h => h.DetallesMovimiento)
+            .FirstOrDefaultAsync(e => e.Id == id && e.Activo);
+
+        if (embarque == null) return NotFound();
+
+        // Un embarque viejo que ya iba a una de esas bodegas conserva su destino al editarlo; no se puede elegir uno nuevo.
+        var errorDestino = await ValidarDestinoAsync(dto.IdDireccion, embarque.IdDireccion);
+        if (errorDestino != null) return BadRequest(new { mensaje = errorDestino });
+
+        var tipoMovimiento = await TipoMovimientoEmbarqueAsync();
+        if (tipoMovimiento == null)
+            return BadRequest(new { mensaje = "No existe tipo de movimiento 'Embarque'" });
+
+        // Validar TODO primero, sin tocar la base de datos todavía: un PUT rechazado no debe alterar nada.
+        var errorStock = await ValidarStockAsync(dto.Detalles);
+        if (errorStock != null) return BadRequest(new { mensaje = errorStock });
+
+        // Todo en una transacción: si algo falla el embarque queda como estaba.
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        await ActualizarEmbarqueAsync(embarque, dto, tipoMovimiento);
         await tx.CommitAsync();
 
         return NoContent();
+    }
+
+    // Da de baja un destino (cargado con HistorialMovimiento.DetallesMovimiento y SolicitudDetalles): devuelve el stock
+    // que había reservado su Solicitud, anula sus pedidos de consignación pendientes y lo audita. No abre transacción.
+    private async Task EliminarEmbarqueAsync(Embarque embarque)
+    {
+        var datosAnteriores = await SnapshotEmbarque(embarque, await ResolverDetalles(embarque.HistorialMovimiento.DetallesMovimiento));
+
+        // La Requisición (HistorialMovimiento.DetallesMovimiento) no tiene stock real que devolver: eso solo lo reserva
+        // la Solicitud (ver GuardarSolicitud). Se devuelve lo que cada renglón realmente descontó (detalle.Kilos), no el
+        // peso nominal recalculado: para una caja incompleta serían kilos distintos.
+        foreach (var detalle in embarque.SolicitudDetalles)
+        {
+            var ubicacion = await _context.UbicacionesProducto
+                .FirstOrDefaultAsync(u => u.IdExistencia == detalle.IdExistencia && u.IdDireccion == detalle.IdDireccion);
+            if (ubicacion != null)
+                ubicacion.CantidadKilos += detalle.Kilos;
+        }
+
+        embarque.Activo = false;
+        await _context.SaveChangesAsync();
+        await _pedidos.AnularPendientesAsync("Embarque", embarque.Id);
+
+        await _auditoria.RegistrarAsync("embarque", embarque.Id.ToString(), "ELIMINAR", datosAnteriores, null, this.IdUsuarioActual());
     }
 
     [HttpDelete("{id}")]
@@ -1473,31 +1810,8 @@ public class EmbarquesController : ControllerBase
 
         if (embarque == null) return NotFound();
 
-        var datosAnteriores = await SnapshotEmbarque(embarque, await ResolverDetalles(embarque.HistorialMovimiento.DetallesMovimiento));
-
         await using var tx = await _context.Database.BeginTransactionAsync();
-
-        // La Requisición (HistorialMovimiento.DetallesMovimiento) ya no tiene stock real que
-        // devolver — eso solo lo reserva la Solicitud (ver GuardarSolicitud), así que es lo único
-        // que hay que revertir aquí al eliminar el embarque.
-        foreach (var detalle in embarque.SolicitudDetalles)
-        {
-            // Igual que en GuardarSolicitud: se devuelve lo que ese renglón realmente descontó
-            // (detalle.Kilos), no el peso nominal recalculado — para una caja incompleta serían
-            // kilos distintos.
-            var kilos = detalle.Kilos;
-
-            var ubicacion = await _context.UbicacionesProducto
-                .FirstOrDefaultAsync(u => u.IdExistencia == detalle.IdExistencia && u.IdDireccion == detalle.IdDireccion);
-            if (ubicacion != null)
-                ubicacion.CantidadKilos += kilos;
-        }
-
-        embarque.Activo = false;
-        await _context.SaveChangesAsync();
-        await _pedidos.AnularPendientesAsync("Embarque", embarque.Id);
-
-        await _auditoria.RegistrarAsync("embarque", id.ToString(), "ELIMINAR", datosAnteriores, null, this.IdUsuarioActual());
+        await EliminarEmbarqueAsync(embarque);
         await tx.CommitAsync();
 
         return NoContent();

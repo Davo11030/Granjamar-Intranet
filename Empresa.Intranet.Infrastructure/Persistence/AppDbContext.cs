@@ -32,6 +32,7 @@ public class AppDbContext : DbContext
     public DbSet<Embarque> Embarques { get; set; }
     public DbSet<SolicitudDetalle> SolicitudesDetalle { get; set; }
     public DbSet<SolicitudTarima> SolicitudTarimas { get; set; }
+    public DbSet<CiegoTarima> CiegoTarimas { get; set; }
     public DbSet<RtDetalle> RtDetalles { get; set; }
     public DbSet<RtDetalleDocumento> RtDetalleDocumentos { get; set; }
     public DbSet<PedidoConsignacion> PedidosConsignacion { get; set; }
@@ -92,6 +93,7 @@ public DbSet<UsuarioPermiso> UsuariosPermiso { get; set; }
             .HasOne(e => e.DireccionOrigen).WithMany().HasForeignKey(e => e.IdDireccionOrigen).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<SolicitudDetalle>().ToTable("solicitud_detalle");
         modelBuilder.Entity<SolicitudTarima>().ToTable("solicitud_tarima");
+        modelBuilder.Entity<CiegoTarima>().ToTable("ciego_tarima");
         modelBuilder.Entity<RtDetalle>().ToTable("rt_detalle");
         modelBuilder.Entity<RtDetalleDocumento>().ToTable("rt_detalle_documento");
         modelBuilder.Entity<PedidoConsignacion>().ToTable("pedido_consignacion");
@@ -248,6 +250,17 @@ public DbSet<UsuarioPermiso> UsuariosPermiso { get; set; }
         modelBuilder.Entity<SolicitudTarima>()
             .Property(t => t.CajasPorTarima).HasPrecision(18, 3);
         modelBuilder.Entity<SolicitudTarima>()
+            .HasOne(t => t.Producto)
+            .WithMany()
+            .HasForeignKey(t => t.CodigoProducto)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<CiegoTarima>()
+            .HasOne(t => t.Embarque)
+            .WithMany(e => e.CiegoTarimas)
+            .HasForeignKey(t => t.IdEmbarque);
+        modelBuilder.Entity<CiegoTarima>()
+            .Property(t => t.Cajas).HasPrecision(18, 3);
+        modelBuilder.Entity<CiegoTarima>()
             .HasOne(t => t.Producto)
             .WithMany()
             .HasForeignKey(t => t.CodigoProducto)

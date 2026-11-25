@@ -35,4 +35,5 @@ public class Embarque
     public ICollection<SolicitudDetalle> SolicitudDetalles { get; set; } = new List<SolicitudDetalle>();
     public ICollection<RtDetalle> RtDetalles { get; set; } = new List<RtDetalle>();
     public ICollection<SolicitudTarima> SolicitudTarimas { get; set; } = new List<SolicitudTarima>();
+    public ICollection<CiegoTarima> CiegoTarimas { get; set; } = new List<CiegoTarima>();
 }

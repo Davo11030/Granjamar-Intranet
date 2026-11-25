@@ -64,6 +64,37 @@ public class CrearDetalleEmbarqueDto
 }
 
 // Cambiar únicamente el estado de un embarque (marcar completado, etc.).
+// Requisición completa (todos sus destinos) para guardarla en una sola operación. Número, origen y transporte son
+// comunes a todos los destinos; si el número viene vacío lo asigna el servidor.
+public class GuardarRequisicionDto
+{
+    public string? Numero { get; set; }
+    public uint? IdDireccionOrigen { get; set; }
+    public CrearDetalleTransporteDto? Transporte { get; set; }
+    public List<DestinoRequisicionDto> Destinos { get; set; } = new();
+}
+
+// Un destino de la requisición: IdEmbarque si ya existía (se actualiza) o vacío si es nuevo. Dirección o cliente.
+public class DestinoRequisicionDto
+{
+    public uint? IdEmbarque { get; set; }
+    public uint? IdDireccion { get; set; }
+    public uint? IdCliente { get; set; }
+    public List<CrearDetalleEmbarqueDto> Detalles { get; set; } = new();
+}
+
+// El Ciego de carga de un número de embarque: por cada destino, el código de producto de cada tarima en orden.
+public class GuardarCiegoDto
+{
+    public List<CiegoDestinoDto> Destinos { get; set; } = new();
+}
+
+public class CiegoDestinoDto
+{
+    public uint IdEmbarque { get; set; }
+    public List<string> Tarimas { get; set; } = new();
+}
+
 public class CambiarEstadoEmbarqueDto
 {
     public string Estado { get; set; } = null!;

@@ -54,7 +54,7 @@ export default function EmbarqueDetalle() {
     setGuardando(true)
     try {
       await cambiarEstadoEmbarque(id, { estado: 'Completado', idUsuario: usuario?.id })
-      toast.exito('Embarque marcado como completado')
+      toast.exito(hermanos.length > 1 ? `Embarque marcado como completado (sus ${hermanos.length} destinos)` : 'Embarque marcado como completado')
       setEmbarque((prev) => ({ ...prev, estado: 'Completado' }))
     } catch (e) {
       toast.error(e.response?.data?.mensaje || 'No se pudo actualizar el estado')

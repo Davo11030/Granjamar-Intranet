@@ -6,7 +6,7 @@ import PageHeader from '../../components/PageHeader'
 import Modal from '../../components/Modal'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
-import { getEmbarque, getEmbarquesPorNumero, marcarDocumentoEmbarque } from '../../api/embarques'
+import { getEmbarque, getEmbarquesPorNumero, guardarCiego } from '../../api/embarques'
 import { avisar } from '../../utils/avisoCarga'
 
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
@@ -15,7 +15,7 @@ export default function CiegoDeCarga() {
   const { id } = useParams()
   const navigate = useNavigate()
   const toast = useToast()
-  const { usuario, puede } = useAuth()
+  const { puede } = useAuth()
 
   // Un bloque por destino (un embarque real del back cada uno) — igual que en RT y Solicitud,
   // nunca se mezclan sus tarimas entre sí. Cada bloque trae exactamente las tarimas que se
@@ -93,12 +93,18 @@ export default function CiegoDeCarga() {
             }
 
             const total = [...productos.values()].reduce((sum, p) => sum + p.cajasPorTarima.length, 0)
+            // El acomodo que ya se había guardado (qué producto lleva cada tarima), si sigue cuadrando con la Solicitud.
+            const guardado = [...(s?.ciegoTarimas || [])].sort((a, b) => a.posicion - b.posicion)
+            const usarGuardado = guardado.length === total && guardado.every((t) => productos.has(t.codigoProducto))
             return {
               idEmbarque: s.id,
               destino: s?.destino || s?.direccion || '',
               productos: [...productos.values()],
               anterior,
-              filas: Array.from({ length: total }, (_, i) => ({ tarima: i + 1, codigo: '', busqueda: '' })),
+              filas: Array.from({ length: total }, (_, i) => {
+                const codigo = usarGuardado ? guardado[i].codigoProducto : ''
+                return { tarima: i + 1, codigo, busqueda: codigo }
+              }),
             }
           }),
         )
@@ -163,8 +169,10 @@ export default function CiegoDeCarga() {
     }
     setGuardando(true)
     try {
-      for (const b of bloques)
-        await marcarDocumentoEmbarque(b.idEmbarque, { documento: 'ciego', completo: true, idUsuario: usuario?.id })
+      // Todos los destinos en un solo guardado: qué producto lleva cada tarima, en orden.
+      await guardarCiego(id, {
+        destinos: bloques.map((b) => ({ idEmbarque: b.idEmbarque, tarimas: b.filas.map((f) => f.codigo) })),
+      })
     } catch (e) {
       toast.error(e.response?.data?.mensaje || 'No se pudo guardar el ciego de carga')
       setGuardando(false)

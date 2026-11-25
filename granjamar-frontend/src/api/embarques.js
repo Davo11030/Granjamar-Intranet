@@ -4,6 +4,12 @@ export const getEmbarque = (id) => api.get(`/Embarques/${id}`)
 export const getEmbarquesPorNumero = (numero) => api.get(`/Embarques/por-numero/${encodeURIComponent(numero)}`)
 export const crearEmbarque = (datos) => api.post('/Embarques', datos)
 export const actualizarEmbarque = (id, datos) => api.put(`/Embarques/${id}`, datos)
+// La requisición completa (todos sus destinos) en una sola operación: o se guarda entera o no se guarda nada.
+// Si el número va vacío lo asigna el servidor. Responde { numero, ids, eliminados }.
+export const crearRequisicion = (datos) => api.post('/Embarques/requisicion', datos)
+export const actualizarRequisicion = (id, datos) => api.put(`/Embarques/${id}/requisicion`, datos)
+// El Ciego de carga de todo el número de embarque: { destinos: [{ idEmbarque, tarimas: [código de cada tarima, en orden] }] }.
+export const guardarCiego = (id, datos) => api.put(`/Embarques/${id}/ciego`, datos)
 export const cambiarEstadoEmbarque = (id, datos) => api.put(`/Embarques/${id}/estado`, datos)
 export const marcarDocumentoEmbarque = (id, datos) => api.put(`/Embarques/${id}/documento`, datos)
 export const guardarSolicitud = (id, datos) => api.put(`/Embarques/${id}/solicitud`, datos)

@@ -10,7 +10,7 @@ import { useToast } from '../../context/ToastContext'
 import { getDirecciones, getEmpresas } from '../../api/destinos'
 import { getClientes } from '../../api/clientes'
 import { getProductos, getUbicaciones } from '../../api/inventario'
-import { crearEmbarque, actualizarEmbarque, eliminarEmbarque, getEmbarque, getEmbarques, getEmbarquesPorNumero } from '../../api/embarques'
+import { crearRequisicion, actualizarRequisicion, getEmbarque, getEmbarquesPorNumero } from '../../api/embarques'
 import { getChoferes, getTractocamiones, getCajas } from '../../api/operadores'
 import { esBodegaRestringida, esEmpresaInterna, ubicacionSugerida } from '../../utils/ubicaciones'
 import { avisar } from '../../utils/avisoCarga'
@@ -56,7 +56,7 @@ export default function Requisicion() {
   const { id } = useParams()
   const esEdicion = !!(id && id !== 'nuevo')
   const navigate = useNavigate()
-  const { usuario, puede } = useAuth()
+  const { puede } = useAuth()
   const toast = useToast()
 
   const [numero, setNumero] = useState('')
@@ -111,25 +111,6 @@ export default function Requisicion() {
     const ensenada = internas.find((x) => quita(x.municipio).includes('ensenada')) || internas.find((x) => quita(x.direccion).includes('ensenada'))
     if (ensenada) setIdOrigen(String(ensenada.id))
   }, [destinos, empresas, embarqueData, esEdicion])
-
-  // Predispone el siguiente número de embarque disponible en requisiciones nuevas — solo cuenta
-  // los del año en curso, así que cada año nuevo el conteo reinicia en 1. El usuario puede
-  // cambiarlo, es solo una sugerencia para que el campo no se vea vacío.
-  useEffect(() => {
-    if (esEdicion) return
-    getEmbarques()
-      .then((r) => {
-        const anioActual = new Date().getFullYear()
-        const numericos = r.data
-          .filter((e) => e.fechaRegistro && new Date(e.fechaRegistro).getFullYear() === anioActual)
-          .map((e) => parseInt(e.numero, 10))
-          .filter((n) => !Number.isNaN(n))
-        const siguiente = numericos.length > 0 ? Math.max(...numericos) + 1 : 1
-        setNumero((prev) => prev || String(siguiente))
-      })
-      .catch(() => {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [esEdicion])
 
   // Reconstruye la requisición ya existente para poder editarla — un grupo por cada destino que
   // ya comparte este mismo número de embarque (mismo número = mismo embarque para el usuario,
@@ -302,74 +283,50 @@ export default function Requisicion() {
       }
     }
 
-    // Una requisición NUEVA nunca debe compartir número con una que ya existe — eso solo es
-    // válido cuando se está editando esa misma requisición para agregarle más destinos (otro
-    // flujo). Si el número ya está en uso por algo que no es esto, Solicitud/RT más adelante
-    // tratarían ambas como "la misma", mezclando su stock y su reparto sin ninguna relación real.
-    if (!esEdicion && numero) {
-      const yaExiste = await getEmbarquesPorNumero(numero)
-        .then((r) => r.data.length > 0)
-        .catch(() => false)
-      if (yaExiste) {
-        return toast.advertencia(
-          `El número "${numero}" ya lo usa otra requisición. Si quieres agregarle un destino a esa, ábrela y edítala ahí — no crees una nueva con el mismo número.`,
-        )
-      }
-    }
+    // Un destino que ya estaba guardado y se quedó sin productos: hay que quitarlo a propósito (botón de quitar
+    // destino), no borrarlo sin avisar.
+    const vacio = grupos.findIndex((g) => g.idEmbarque && !gruposValidos.some((v) => v.idEmbarque === g.idEmbarque))
+    if (vacio >= 0) return toast.advertencia(`El destino ${vacio + 1} se quedó sin productos: agrégale alguno o quítalo`)
 
-    const detallesDeGrupo = (g) =>
-      g.validas.map((f) => ({
-        codigoProducto: f.codigo,
-        kilos: kilosDe(f),
-        idDireccion: f.idDireccionOrigen,
-        idDepartamento: null,
-      }))
+    // Toda la requisición (todos sus destinos) se guarda en una sola operación: o queda completa o no queda nada. El
+    // servidor asigna el número si se deja vacío y rechaza uno que ya use otra requisición.
+    const payload = {
+      numero: numero.trim() || null,
+      idDireccionOrigen: idOrigen ? Number(idOrigen) : null,
+      transporte,
+      destinos: gruposValidos.map((g) => ({
+        idEmbarque: g.idEmbarque || null,
+        ...destinoPayload(g.idDestino),
+        detalles: g.validas.map((f) => ({
+          codigoProducto: f.codigo,
+          kilos: kilosDe(f),
+          idDireccion: f.idDireccionOrigen,
+          idDepartamento: null,
+        })),
+      })),
+    }
 
     setGuardando(true)
     try {
       if (esEdicion) {
-        for (const g of gruposValidos) {
-          const payload = {
-            idUsuario: usuario?.id,
-            numero: numero || null,
-            idDireccionOrigen: idOrigen ? Number(idOrigen) : null,
-            ...destinoPayload(g.idDestino),
-            transporte,
-            detalles: detallesDeGrupo(g),
-          }
-          if (g.idEmbarque) await actualizarEmbarque(g.idEmbarque, payload)
-          else await crearEmbarque(payload)
-        }
-        for (const idEliminar of eliminados) {
-          await eliminarEmbarque(idEliminar, usuario?.id)
-        }
-
+        const res = await actualizarRequisicion(id, payload)
         toast.exito('Requisición actualizada')
         // Si el destino que abrimos originalmente se quitó, no hay a dónde regresar dentro de
         // él — vamos a la lista; si no, seguimos viendo su propio detalle.
-        navigate(eliminados.includes(id) || eliminados.includes(Number(id)) ? '/salidas/embarques' : `/salidas/embarques/${id}`)
+        const quitado = (res.data?.eliminados || []).map(Number).includes(Number(id))
+        navigate(quitado ? '/salidas/embarques' : `/salidas/embarques/${id}`)
       } else {
-        // Un embarque por destino, mismo numero y mismo transporte para los N — se
-        // hacen en serie (no Promise.all) porque distintos destinos pueden descontar
-        // de la misma ubicación de origen y no deben pisarse entre sí.
-        const idsCreados = []
-        for (const g of gruposValidos) {
-          const res = await crearEmbarque({
-            idUsuario: usuario?.id,
-            numero: numero || null,
-            idDireccionOrigen: idOrigen ? Number(idOrigen) : null,
-            ...destinoPayload(g.idDestino),
-            transporte,
-            detalles: detallesDeGrupo(g),
-          })
-          idsCreados.push(res.data.id)
-        }
-
-        toast.exito(idsCreados.length > 1 ? `${idsCreados.length} embarques creados` : 'Requisición enviada')
-        navigate(idsCreados.length === 1 ? `/salidas/embarques/${idsCreados[0]}` : '/salidas/embarques')
+        const res = await crearRequisicion(payload)
+        const ids = res.data?.ids || []
+        toast.exito(
+          ids.length > 1
+            ? `Embarque ${res.data.numero} creado con ${ids.length} destinos`
+            : `Requisición enviada: embarque ${res.data.numero}`,
+        )
+        navigate(ids.length === 1 ? `/salidas/embarques/${ids[0]}` : '/salidas/embarques')
       }
     } catch (e) {
-      toast.error(e.response?.data?.mensaje || 'No se pudo guardar el embarque')
+      toast.error(e.response?.data?.mensaje || 'No se pudo guardar la requisición; no se guardó ningún destino')
     } finally {
       setGuardando(false)
       setConfirmar(false)
@@ -395,7 +352,8 @@ export default function Requisicion() {
             <input
               value={numero}
               onChange={(e) => setNumero(e.target.value)}
-              placeholder="auto"
+              placeholder="Automático"
+              title="Déjalo vacío y el sistema asigna el siguiente número al guardar"
               className="w-28 rounded-lg border-2 border-gray-300 px-3 py-1.5 font-bold text-black outline-none"
             />
           </label>
