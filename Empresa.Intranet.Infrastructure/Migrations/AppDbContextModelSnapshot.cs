@@ -118,6 +118,37 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                     b.ToTable("chofer", (string)null);
                 });
 
+            modelBuilder.Entity("Empresa.Intranet.Domain.Entities.CiegoTarima", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("Cajas")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("decimal(18,3)");
+
+                    b.Property<string>("CodigoProducto")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<long>("IdEmbarque")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("Posicion")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CodigoProducto");
+
+                    b.HasIndex("IdEmbarque");
+
+                    b.ToTable("ciego_tarima", (string)null);
+                });
+
             modelBuilder.Entity("Empresa.Intranet.Domain.Entities.ClavesSat", b =>
                 {
                     b.Property<int>("Id")
@@ -1651,6 +1682,25 @@ namespace Empresa.Intranet.Infrastructure.Migrations
                     b.Navigation("Empresa");
                 });
 
+            modelBuilder.Entity("Empresa.Intranet.Domain.Entities.CiegoTarima", b =>
+                {
+                    b.HasOne("Empresa.Intranet.Domain.Entities.Producto", "Producto")
+                        .WithMany()
+                        .HasForeignKey("CodigoProducto")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Empresa.Intranet.Domain.Entities.Embarque", "Embarque")
+                        .WithMany("CiegoTarimas")
+                        .HasForeignKey("IdEmbarque")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Embarque");
+
+                    b.Navigation("Producto");
+                });
+
             modelBuilder.Entity("Empresa.Intranet.Domain.Entities.Compras", b =>
                 {
                     b.HasOne("Empresa.Intranet.Domain.Entities.Empresa", "Empresa")
@@ -2270,6 +2320,8 @@ namespace Empresa.Intranet.Infrastructure.Migrations
 
             modelBuilder.Entity("Empresa.Intranet.Domain.Entities.Embarque", b =>
                 {
+                    b.Navigation("CiegoTarimas");
+
                     b.Navigation("RtDetalles");
 
                     b.Navigation("SolicitudDetalles");
