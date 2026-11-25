@@ -120,6 +120,9 @@ public class VentasController : ControllerBase
             {
                 d.Id,
                 d.IdExistencia,
+                // Bodega de la que salió el renglón: al corregir la venta, la pantalla devuelve estos kilos ahí.
+                d.IdDireccion,
+                d.IdDepartamento,
                 Producto = l.GetValueOrDefault("Producto"),
                 Descripcion = l.GetValueOrDefault("Descripcion"),
                 Lote = l.GetValueOrDefault("Lote"),
@@ -134,6 +137,7 @@ public class VentasController : ControllerBase
         return Ok(new
         {
             v.Id,
+            v.IdCliente,
             Cliente = v.Cliente?.Nombre ?? v.NombreCliente ?? "Público en general",
             FormaPago = v.FormaPago?.Nombre,
             LugarEntrega = v.LugarEntrega?.Nombre,
@@ -346,7 +350,8 @@ public class VentasController : ControllerBase
         venta.Descuento = dto.Descuento is > 0 ? dto.Descuento : null;
         venta.EfectivoRecibido = dto.EfectivoRecibido;
         if (!string.IsNullOrWhiteSpace(dto.Estado)) venta.Estado = dto.Estado;
-        venta.HistorialMovimiento.IdUsuario = this.IdUsuarioActual();
+        // La venta sigue siendo del cajero que la cobró (así no se sale de su corte de caja); quién la
+        // corrigió queda en la auditoría.
 
         await _context.SaveChangesAsync();
         await _pedidos.SincronizarAsync("Venta", venta.Id, "Cliente", await DestinoVentaAsync(dto.IdCliente, venta.NombreCliente),

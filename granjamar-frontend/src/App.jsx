@@ -17,6 +17,7 @@ import EntradaEditar from './pages/entradas/EntradaEditar'
 import Ventas from './pages/salidas/Ventas'
 import VentaMostrador from './pages/salidas/VentaMostrador'
 import VentaMayoreo from './pages/salidas/VentaMayoreo'
+import VentaEditar from './pages/salidas/VentaEditar'
 import CorteCaja from './pages/salidas/CorteCaja'
 import Embarques from './pages/salidas/Embarques'
 import EmbarqueDetalle from './pages/salidas/EmbarqueDetalle'
@@ -69,6 +70,7 @@ export default function App() {
           <Route path="/salidas/ventas" element={<ProtectedRoute permiso={['ventas','ver']}><Ventas /></ProtectedRoute>} />
           <Route path="/salidas/ventas/mostrador" element={<ProtectedRoute permiso={['ventas','crear']}><VentaMostrador /></ProtectedRoute>} />
           <Route path="/salidas/ventas/mayoreo" element={<ProtectedRoute permiso={['ventas','crear']}><VentaMayoreo /></ProtectedRoute>} />
+          <Route path="/salidas/ventas/:id/editar" element={<ProtectedRoute permiso={['ventas','editar']}><VentaEditar /></ProtectedRoute>} />
           <Route path="/salidas/ventas/corte" element={<ProtectedRoute permiso={[['ventas','corte'],['ventas','ver']]}><CorteCaja /></ProtectedRoute>} />
           <Route path="/salidas/embarques" element={<ProtectedRoute permiso={['embarques','ver']}><Embarques /></ProtectedRoute>} />
           <Route path="/salidas/embarques/:id" element={<ProtectedRoute permiso={['embarques','ver']}><EmbarqueDetalle /></ProtectedRoute>} />

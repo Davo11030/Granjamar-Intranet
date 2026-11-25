@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Layout from '../Layout'
 import PageHeader from '../PageHeader'
@@ -12,6 +12,7 @@ import { getClientes } from '../../api/clientes'
 import { getEmpresas } from '../../api/destinos'
 import {
   crearVenta,
+  actualizarVenta,
   getFormasPago,
   crearFormaPago,
   getLugaresEntrega,
@@ -76,8 +77,10 @@ const IconoPago = ({ tipo }) => {
 }
 const ROTULO_PAGO = { Credito: 'Crédito' }
 
-export default function VentaForm({ modo }) {
+// ventaEditar: la venta (tal como la regresa GET /Ventas/{id}) que se está corrigiendo; sin ella se registra una nueva.
+export default function VentaForm({ modo, ventaEditar = null }) {
   const esMayoreo = modo === 'mayoreo'
+  const editando = !!ventaEditar
   const navigate = useNavigate()
   const { usuario } = useAuth()
   const toast = useToast()
@@ -117,10 +120,26 @@ export default function VentaForm({ modo }) {
 
   // Ventas solo puede surtirse del inventario propio (Granjamar/Conpaq), nunca de
   // resguardo o consignación.
+  // Al corregir una venta, los kilos que ella misma ya descontó cuentan como disponibles otra vez (el servidor
+  // los devuelve antes de aplicar la corrección).
   const ubicaciones = useMemo(() => {
     const permitidas = idsEmpresaPermitidos(empresas, { interna: true })
-    return filtrarPorEmpresasPermitidas(ubicacionesTodas, permitidas)
-  }, [ubicacionesTodas, empresas])
+    const propios = ventaEditar?.detalles || []
+    const base = propios.length
+      ? ubicacionesTodas.map((u) => {
+          const kilosPropios = propios
+            .filter(
+              (d) =>
+                Number(d.idExistencia) === Number(u.idExistencia) &&
+                Number(d.idDireccion) === Number(u.idDireccion) &&
+                (d.idDepartamento ?? null) === (u.idDepartamento ?? null),
+            )
+            .reduce((acc, d) => acc + Number(d.kilos || 0), 0)
+          return kilosPropios ? { ...u, cantidadKilos: Number(u.cantidadKilos || 0) + kilosPropios } : u
+        })
+      : ubicacionesTodas
+    return filtrarPorEmpresasPermitidas(base, permitidas)
+  }, [ubicacionesTodas, empresas, ventaEditar])
 
   const stockDe = (codigo) =>
     ubicaciones.filter((u) => u.codigoProducto === codigo).reduce((s, u) => s + Number(u.cantidadKilos || 0), 0)
@@ -153,6 +172,65 @@ export default function VentaForm({ modo }) {
       stockDisponible: stockDe(codigo),
     })
   }
+
+  // Al corregir: llena el formulario con la venta guardada una vez que hay productos e inventario para calcular el stock.
+  const precargada = useRef(false)
+  useEffect(() => {
+    if (!editando || precargada.current || productos.length === 0 || ubicacionesTodas.length === 0 || empresas.length === 0)
+      return
+    precargada.current = true
+    const v = ventaEditar
+
+    // Un renglón por producto y precio (una venta guarda un renglón por lote).
+    const grupos = new Map()
+    for (const d of v.detalles || []) {
+      if (!d.producto) continue
+      const clave = `${d.producto}|${d.precioKilo ?? ''}`
+      const g = grupos.get(clave) || { codigo: d.producto, precioKilo: d.precioKilo, kilos: 0 }
+      g.kilos += Number(d.kilos || 0)
+      grupos.set(clave, g)
+    }
+    const filas = [...grupos.values()].map((g) => {
+      const p = productos.find((x) => x.codigo === g.codigo)
+      const pesoCaja = Number(p?.pesoCaja) || 0
+      const cajas = pesoCaja > 0 ? g.kilos / pesoCaja : 0
+      // Si los kilos no son cajas completas (p. ej. cambió el peso por caja), se toma todo como una sola caja.
+      const cajasCompletas = pesoCaja > 0 && Math.abs(cajas - Math.round(cajas)) < 0.0005
+      return recalcular({
+        ...FILA_VACIA,
+        codigo: g.codigo,
+        descripcion: p?.especie || g.codigo,
+        kilosCaja: cajasCompletas ? pesoCaja : g.kilos,
+        precioKilo: g.precioKilo != null ? Number(g.precioKilo) : Number(p?.precioKilo) || 0,
+        cantCajas: cajasCompletas ? Math.round(cajas) : 1,
+        stockDisponible: stockDe(g.codigo),
+      })
+    })
+    if (filas.length) setArticulos(filas)
+
+    if (esMayoreo) {
+      setCliente(v.cliente || '')
+      setIdCliente(v.idCliente)
+    } else {
+      setCliente(v.cliente && v.cliente !== 'Público en general' ? v.cliente : '')
+    }
+    setDescuento(v.descuento ? String(Number(v.descuento)) : '')
+    if (v.estado) setEstado(v.estado)
+    if (v.lugarEntrega && ENTREGAS.includes(v.lugarEntrega)) setLugarEntrega(v.lugarEntrega)
+    const pago = v.formaPago || ''
+    if (pago.startsWith('Tarjeta')) {
+      setTipoPago('Tarjeta')
+      setSubtipoTarjeta(pago.includes('Debito') ? 'Debito' : 'Credito')
+    } else if (PAGOS.includes(pago)) setTipoPago(pago)
+    if (v.efectivoRecibido != null) setEfectivoRecibido(String(Number(v.efectivoRecibido)))
+    if (v.fechaRegistro) {
+      const f = new Date(v.fechaRegistro)
+      const dos = (n) => String(n).padStart(2, '0')
+      setFecha(`${f.getFullYear()}-${dos(f.getMonth() + 1)}-${dos(f.getDate())}`)
+      setHora(`${dos(f.getHours())}:${dos(f.getMinutes())}`)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editando, productos, ubicacionesTodas, empresas, ubicaciones])
 
   const agregarFila = () => setArticulos((p) => [...p, { ...FILA_VACIA }])
   const quitarFila = (i) => setArticulos((p) => (p.length === 1 ? p : p.filter((_, idx) => idx !== i)))
@@ -239,7 +317,7 @@ export default function VentaForm({ modo }) {
         ? await idCatalogo(er.data, 'Pendiente', crearEstadoRecoleccion, 'descripcion')
         : null
 
-      await crearVenta({
+      const datosVenta = {
         idUsuario: usuario?.id,
         idCliente: esMayoreo ? idCliente : null,
         // Venta de mostrador sin nombre: se guarda como "Público en general".
@@ -252,9 +330,11 @@ export default function VentaForm({ modo }) {
         efectivoRecibido: tipoPago === 'Efectivo' ? Number(efectivoRecibido || 0) : null,
         estado,
         detalles,
-      })
+      }
+      if (editando) await actualizarVenta(ventaEditar.id, datosVenta)
+      else await crearVenta(datosVenta)
 
-      toast.exito('Venta registrada correctamente')
+      toast.exito(editando ? `Venta #${ventaEditar.id} corregida` : 'Venta registrada correctamente')
       navigate('/salidas/ventas')
     } catch (e) {
       const msg = e.response?.data?.mensaje || 'No se pudo guardar la venta'
@@ -267,7 +347,15 @@ export default function VentaForm({ modo }) {
 
   return (
     <Layout>
-      <PageHeader titulo={esMayoreo ? 'Ventas mayoreo' : 'Ventas mostrador'} />
+      <PageHeader
+        titulo={
+          editando
+            ? `Corregir venta #${ventaEditar.id} (${esMayoreo ? 'mayoreo' : 'mostrador'})`
+            : esMayoreo
+              ? 'Ventas mayoreo'
+              : 'Ventas mostrador'
+        }
+      />
 
       <div className="px-6 md:px-10">
         {/* Fila superior */}
@@ -462,7 +550,7 @@ export default function VentaForm({ modo }) {
             onClick={iniciarCierre}
             className="rounded-full bg-purple-300 px-6 py-2 font-bold text-gray-800 transition hover:bg-purple-400"
           >
-            Cerrar venta
+            {editando ? 'Guardar corrección' : 'Cerrar venta'}
           </button>
         </div>
       </div>
@@ -685,7 +773,7 @@ export default function VentaForm({ modo }) {
             disabled={guardando || !puedeCerrar}
             className="flex-1 rounded-full bg-purple-400 py-2.5 font-bold text-white transition hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {guardando ? 'Guardando…' : 'Cerrar venta'}
+            {guardando ? 'Guardando…' : editando ? 'Guardar corrección' : 'Cerrar venta'}
           </button>
         </div>
       </Modal>

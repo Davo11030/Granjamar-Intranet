@@ -8,7 +8,7 @@ import Cargando from '../../components/Cargando'
 import Modal from '../../components/Modal'
 import IconoMas from '../../components/IconoMas'
 import usePaginacion from '../../hooks/usePaginacion'
-import { getVentas, getVenta, cambiarEstadoVenta } from '../../api/ventas'
+import { getVentas, getVenta, cambiarEstadoVenta, eliminarVenta } from '../../api/ventas'
 import { formatearFecha, formatearHora, formatearFechaHora } from '../../utils/fecha'
 import { imprimirTicketVenta, imprimirReporteVentas } from '../../utils/impresionVentas'
 import { useAuth } from '../../context/AuthContext'
@@ -50,6 +50,8 @@ export default function Ventas() {
   const [rango, setRango] = useState({ desde: '', hasta: '' })
   const [detalle, setDetalle] = useState(null) // la venta abierta en "Detalles"
   const [abriendo, setAbriendo] = useState(false)
+  const [cancelar, setCancelar] = useState(null) // la venta que se va a cancelar (pide confirmación)
+  const [cancelando, setCancelando] = useState(false)
   const menuRef = useRef(null)
 
   const cargar = () => {
@@ -77,6 +79,22 @@ export default function Ventas() {
       toast.error(e.response?.data?.mensaje || 'No se pudo cargar la venta')
     } finally {
       setAbriendo(false)
+    }
+  }
+
+  // Cancela la venta: sus kilos regresan al inventario y deja de contar en reportes y en el corte de caja.
+  const confirmarCancelacion = async () => {
+    setCancelando(true)
+    try {
+      await eliminarVenta(cancelar.id, usuario?.id)
+      toast.exito(`Venta #${cancelar.id} cancelada; los kilos regresaron al inventario`)
+      setCancelar(null)
+      setDetalle(null)
+      cargar()
+    } catch (e) {
+      toast.error(e.response?.data?.mensaje || 'No se pudo cancelar la venta')
+    } finally {
+      setCancelando(false)
     }
   }
 
@@ -359,13 +377,46 @@ export default function Ventas() {
                 <p className="text-lg font-bold text-teal">Total: {dinero(detalle.total)}</p>
               </div>
             </div>
-            <div className="mt-6 flex justify-end">
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex gap-2">
+                {puede('ventas', 'eliminar') && (
+                  <button className="gm-pill text-red-600" onClick={() => setCancelar(detalle)}>
+                    Cancelar venta
+                  </button>
+                )}
+                {puede('ventas', 'editar') && (
+                  <button className="gm-pill" onClick={() => navigate(`/salidas/ventas/${detalle.id}/editar`)}>
+                    Corregir
+                  </button>
+                )}
+              </div>
               <button className="gm-btn-cancelar" onClick={() => setDetalle(null)}>
                 Cerrar
               </button>
             </div>
           </>
         )}
+      </Modal>
+
+      <Modal abierto={!!cancelar} onCerrar={() => !cancelando && setCancelar(null)} titulo="" ancho="max-w-sm">
+        <p className="text-center text-lg">¿Deseas cancelar la venta #{cancelar?.id} de</p>
+        <p className="mb-1 text-center text-xl font-bold text-marca">{cancelar?.cliente || 'Público en general'}?</p>
+        <p className="mb-4 text-center text-sm text-gray-500">
+          {cancelar && `${formatearFechaHora(cancelar.fechaRegistro)} · ${dinero(cancelar.total)}`}
+        </p>
+        <p className="mb-6 text-center text-sm text-gray-400">
+          Los{' '}
+          {kilos((cancelar?.detalles || []).reduce((acc, d) => acc + Number(d.kilos || 0), 0))} kg regresan al inventario
+          y la venta deja de contar en los reportes y en el corte de caja. No se puede deshacer.
+        </p>
+        <div className="flex justify-center gap-4">
+          <button className="gm-btn-guardar whitespace-nowrap !px-6" onClick={() => setCancelar(null)} disabled={cancelando}>
+            Regresar
+          </button>
+          <button className="gm-btn-cancelar whitespace-nowrap !px-6" onClick={confirmarCancelacion} disabled={cancelando}>
+            {cancelando ? 'Cancelando…' : 'Sí, cancelar'}
+          </button>
+        </div>
       </Modal>
 
       <Modal abierto={reporte} onCerrar={() => setReporte(false)} titulo="Reporte de ventas" ancho="max-w-md">
