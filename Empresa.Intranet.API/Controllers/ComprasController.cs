@@ -395,9 +395,12 @@ public class ComprasController : ControllerBase
 
     // ¿Este lote ya lo usa algo más (otro movimiento, un embarque, producción)? Entonces no se puede cambiar de producto
     // ni de bodega, ni quitar.
+    // Las ventas y los embarques cancelados ya devolvieron sus kilos, así que no cuentan como uso.
     private async Task<bool> LoteEnUsoAsync(uint idExistencia, uint idDetalle) =>
-        await _context.DetallesMovimiento.AnyAsync(x => x.IdExistencia == idExistencia && x.Id != idDetalle)
-        || await _context.SolicitudesDetalle.AnyAsync(x => x.IdExistencia == idExistencia)
+        await _context.DetallesMovimiento.AnyAsync(x => x.IdExistencia == idExistencia && x.Id != idDetalle
+            && !_context.Ventas.Any(v => v.IdHistorial == x.IdHistorial && !v.Activo)
+            && !_context.Embarques.Any(e => e.IdHistorial == x.IdHistorial && !e.Activo))
+        || await _context.SolicitudesDetalle.AnyAsync(x => x.IdExistencia == idExistencia && x.Embarque.Activo)
         || await _context.ProduccionInventario.AnyAsync(x => x.Activo && x.IdExistencia == idExistencia)
         || await _context.ProduccionReporte.AnyAsync(x => x.Activo && (x.IdExistenciaOrigen == idExistencia || x.IdExistenciaSalida == idExistencia || x.IdExistenciaExtra == idExistencia))
         || await _context.SolicitudesProduccion.AnyAsync(x => x.Activo && x.IdExistencia == idExistencia);
@@ -579,6 +582,22 @@ public class ComprasController : ControllerBase
             .FirstOrDefaultAsync(c => c.Id == id && c.Activo);
 
         if (compra == null) return NotFound();
+        if (compra.FolioEmpresa != null)
+            return BadRequest(new { mensaje = "Las entradas de una empresa en consignación se cancelan desde su menú de Consignación" });
+
+        // Solo se cancela si ninguno de sus lotes se ha movido (venta, embarque, producción…): si no, el
+        // inventario quedaría en negativo y esos movimientos apuntarían a un lote que ya no existe.
+        foreach (var d in compra.HistorialMovimiento!.DetallesMovimiento)
+        {
+            var ub = await _context.UbicacionesProducto.FirstOrDefaultAsync(u => u.IdExistencia == d.IdExistencia
+                && u.IdDireccion == d.IdDireccion && u.IdDepartamento == d.IdDepartamento);
+            if ((ub?.CantidadKilos ?? 0) + 0.0005m < d.Kilos
+                || (d.IdExistencia.HasValue && await LoteEnUsoAsync(d.IdExistencia.Value, d.Id)))
+            {
+                var lote = (await _context.Existencias.FindAsync(d.IdExistencia))?.Lote;
+                return BadRequest(new { mensaje = $"El lote {lote} ya se usó (ventas, embarques, producción u otros movimientos): primero cancela esos movimientos." });
+            }
+        }
 
         var datosAnteriores = await SnapshotCompra(compra, await ResolverDetalles(compra.HistorialMovimiento!.DetallesMovimiento));
 

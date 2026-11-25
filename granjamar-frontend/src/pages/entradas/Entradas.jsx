@@ -10,7 +10,7 @@ import AgregarBoton from '../../components/AgregarBoton'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import usePaginacion from '../../hooks/usePaginacion'
-import { getEntradas, getEntrada, cambiarEstadoEntrada, getHistorialEstadoEntrada } from '../../api/entradas'
+import { getEntradas, getEntrada, cambiarEstadoEntrada, getHistorialEstadoEntrada, eliminarEntrada } from '../../api/entradas'
 import { abrirArchivoDocumento } from '../../api/documentos'
 import { formatearFecha, formatearFechaHora } from '../../utils/fecha'
 import { avisar } from '../../utils/avisoCarga'
@@ -36,6 +36,8 @@ export default function Entradas() {
   const [historial, setHistorial] = useState(null)
   const [historialDatos, setHistorialDatos] = useState([])
   const [detalle, setDetalle] = useState(null)
+  const [cancelar, setCancelar] = useState(null) // la entrada que se va a cancelar (pide confirmación)
+  const [cancelando, setCancelando] = useState(false)
 
   const cargar = () => {
     getEntradas().then((r) => setDatos(r.data)).catch(avisar('No se pudieron cargar las entradas', () => setErrorCarga(true))).finally(() => setCargando(false))
@@ -68,6 +70,21 @@ export default function Entradas() {
       setDetalle(res.data)
     } catch {
       toast.error('No se pudo cargar la entrada')
+    }
+  }
+
+  // Cancela la entrada: sus kilos salen del inventario. El servidor la rechaza si algún lote ya se usó.
+  const confirmarCancelacion = async () => {
+    setCancelando(true)
+    try {
+      await eliminarEntrada(cancelar.id, usuario?.id)
+      toast.exito('Entrada cancelada; sus kilos salieron del inventario')
+      setCancelar(null)
+      cargar()
+    } catch (e) {
+      toast.error(e.response?.data?.mensaje || 'No se pudo cancelar la entrada')
+    } finally {
+      setCancelando(false)
     }
   }
 
@@ -165,6 +182,11 @@ export default function Entradas() {
                               Editar
                             </button>
                           )}
+                          {puede('compras', 'eliminar') && !d.folioEmpresa && (
+                            <button className="gm-pill text-red-600" onClick={() => setCancelar(d)}>
+                              Cancelar
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -205,6 +227,26 @@ export default function Entradas() {
           </button>
           <button className="gm-btn-guardar" onClick={continuar}>
             Continuar
+          </button>
+        </div>
+      </Modal>
+
+      <Modal abierto={!!cancelar} onCerrar={() => !cancelando && setCancelar(null)} titulo="" ancho="max-w-sm">
+        <p className="text-center text-lg">¿Deseas cancelar la entrada de</p>
+        <p className="mb-1 text-center text-xl font-bold text-marca">
+          {cancelar?.empresa || cancelar?.origen || `Entrada #${cancelar?.id ?? ''}`}?
+        </p>
+        <p className="mb-4 text-center text-sm text-gray-500">{cancelar && formatearFecha(cancelar.fechaRegistro)}</p>
+        <p className="mb-6 text-center text-sm text-gray-400">
+          Sus kilos saldrán del inventario y la entrada dejará de aparecer. Solo se puede cancelar si ninguno de sus lotes se
+          ha vendido, embarcado o usado en producción. No se puede deshacer.
+        </p>
+        <div className="flex justify-center gap-4">
+          <button className="gm-btn-guardar whitespace-nowrap !px-6" onClick={() => setCancelar(null)} disabled={cancelando}>
+            Regresar
+          </button>
+          <button className="gm-btn-cancelar whitespace-nowrap !px-6" onClick={confirmarCancelacion} disabled={cancelando}>
+            {cancelando ? 'Cancelando…' : 'Sí, cancelar'}
           </button>
         </div>
       </Modal>
