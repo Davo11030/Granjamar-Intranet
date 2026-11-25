@@ -27,6 +27,7 @@ import CiegoDeCarga from './pages/salidas/CiegoDeCarga'
 import Otros from './pages/otros/Otros'
 import Operadores from './pages/otros/Operadores'
 import Kardex from './pages/otros/Kardex'
+import CatalogosKardex from './pages/admin/CatalogosKardex'
 import Destinos from './pages/otros/Destinos'
 import ClavesSat from './pages/otros/ClavesSat'
 import Movimientos from './pages/admin/Movimientos'
@@ -82,6 +83,7 @@ export default function App() {
           <Route path="/otros/claves-sat" element={<ProtectedRoute permiso={['catalogos','ver']}><ClavesSat /></ProtectedRoute>} />
           <Route path="/admin/movimientos" element={<RutaAdmin><Movimientos /></RutaAdmin>} />
           <Route path="/admin/usuarios" element={<RutaAdmin><Usuarios /></RutaAdmin>} />
+          <Route path="/admin/catalogos-kardex" element={<RutaAdmin><CatalogosKardex /></RutaAdmin>} />
           <Route path="/salidas/embarques/nuevo/requisicion" element={<ProtectedRoute permiso={['embarques','crear']}><Requisicion /></ProtectedRoute>} />
           <Route path="/admin/visitantes" element={<RutaAdmin><Visitantes /></RutaAdmin>} />
           <Route path="/clientes" element={<ProtectedRoute permiso={['clientes','ver']}><Clientes /></ProtectedRoute>} />

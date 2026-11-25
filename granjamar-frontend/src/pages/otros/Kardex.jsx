@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import { useAuth } from '../../context/AuthContext'
 import PageHeader from '../../components/PageHeader'
@@ -24,7 +25,7 @@ const FORM = { codigo: '', idEspecie: '', idTalla: '', idMarca: '', idPesoCaja: 
 const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
 
 export default function Kardex() {
-  const { puede } = useAuth()
+  const { puede, esAdmin } = useAuth()
   const toast = useToast()
   const [datos, setDatos] = useState([])
   const [cat, setCat] = useState({ especies: [], marcas: [], tallas: [], pesosCaja: [], presentaciones: [] })
@@ -128,7 +129,14 @@ export default function Kardex() {
             placeholder="Buscar por código, especie o talla"
             className="w-80 max-w-full"
           />
-          {puede('productos', 'crear') && <AgregarBoton onClick={abrirNuevo}>Agregar</AgregarBoton>}
+          <div className="flex flex-wrap items-center gap-3">
+            {esAdmin && (
+              <Link to="/admin/catalogos-kardex" className="gm-pill">
+                Especies, marcas, tallas…
+              </Link>
+            )}
+            {puede('productos', 'crear') && <AgregarBoton onClick={abrirNuevo}>Agregar</AgregarBoton>}
+          </div>
         </div>
 
         {cargando ? (
@@ -180,6 +188,15 @@ export default function Kardex() {
       </div>
 
       <Modal abierto={modal} onCerrar={() => setModal(false)} titulo={editando ? `Editar producto — ${editando}` : 'Nuevo producto'} ancho="max-w-lg">
+        {cat.especies.length === 0 && (
+          <p className="mb-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Todavía no hay especies.{' '}
+            <Link to="/admin/catalogos-kardex" className="font-semibold underline">
+              Da de alta especies, marcas y tallas
+            </Link>{' '}
+            antes de crear productos (en Administración).
+          </p>
+        )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label className="block sm:col-span-2">
             <span className="text-sm font-semibold text-teal">Código *</span>

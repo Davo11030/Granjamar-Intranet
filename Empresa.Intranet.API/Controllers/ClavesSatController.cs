@@ -80,6 +80,12 @@ public class ClavesSatController : ControllerBase
         var item = await _context.ClavesSat.FindAsync(id);
         if (item == null) return NotFound();
 
+        // La relación con especie borra en cascada (y la especie, a sus productos): sin esta
+        // revisión, eliminar una clave SAT se llevaría especies y productos del kardex.
+        var enUso = await _context.Especies.CountAsync(e => e.CodigoClaveSat == item.Codigo);
+        if (enUso > 0)
+            return BadRequest(new { mensaje = $"No se puede eliminar: la usan {enUso} especie(s). Cámbialas primero." });
+
         var antes = new { item.Id, item.Codigo, item.Nombre };
         _context.ClavesSat.Remove(item);
         await _context.SaveChangesAsync();
