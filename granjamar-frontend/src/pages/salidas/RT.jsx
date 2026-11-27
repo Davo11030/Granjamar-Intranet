@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../../components/Layout'
+import AvisoEmbarqueCompletado from '../../components/AvisoEmbarqueCompletado'
 import PageHeader from '../../components/PageHeader'
 import Modal from '../../components/Modal'
 import { useToast } from '../../context/ToastContext'
@@ -8,6 +9,7 @@ import { useAuth } from '../../context/AuthContext'
 import { getEmbarque, getEmbarquesPorNumero, guardarRt } from '../../api/embarques'
 import { getProductos, getPedimentosPorProducto } from '../../api/inventario'
 import { abrirArchivoDocumento } from '../../api/documentos'
+import { avisar } from '../../utils/avisoCarga'
 
 const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
@@ -94,6 +96,7 @@ export default function RT() {
   // Un bloque por destino (un embarque real del back cada uno) — igual que en Solicitud, nunca
   // se mezclan sus renglones entre sí.
   const [bloques, setBloques] = useState([])
+  const [completado, setCompletado] = useState(false) // un embarque Completado solo se consulta
   // {codigoProducto: [{idDocumento, tipoDocumento, numeroDocumento, kilosOriginales, kilosUsados, lotes}]}
   // — documentos de ese código, con los kilos con que entraron y lo que las RT ya les descontaron.
   const [pedimentosDisponibles, setPedimentosDisponibles] = useState({})
@@ -107,6 +110,7 @@ export default function RT() {
     Promise.all([getEmbarque(id), getProductos()])
       .then(async ([resEmbarque, resProductos]) => {
         const e = resEmbarque.data
+        setCompletado(e?.estado === 'Completado')
         const catalogo = resProductos.data
         const productoDe = (codigo) => catalogo.find((p) => p.codigo === codigo)
 
@@ -218,7 +222,7 @@ export default function RT() {
 
         setBloques(nuevosBloques)
       })
-      .catch(() => {})
+      .catch(avisar('No se pudo cargar el RT del embarque'))
   }, [id])
 
   // Conteo LEGAL por documento (aparte del stock físico). Un documento entra con ciertos kilos y
@@ -425,6 +429,7 @@ export default function RT() {
       <PageHeader titulo="RT" />
 
       <div className="px-6 md:px-10">
+        {completado && <AvisoEmbarqueCompletado />}
         {!hayFilas && (
           <p className="mb-4 text-sm text-gray-400">
             No hay productos en la Solicitud de este embarque todavía.
@@ -626,7 +631,7 @@ export default function RT() {
           </table>
         </div>
 
-        {puede('embarques', 'editar') && (
+        {puede('embarques', 'editar') && !completado && (
           <div className="mt-8 flex justify-end">
             <button
               onClick={() => {

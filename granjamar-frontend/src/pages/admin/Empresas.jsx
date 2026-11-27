@@ -13,8 +13,6 @@ import {
   actualizarEmpresa,
   eliminarEmpresa,
   getDirecciones,
-  crearDireccion,
-  actualizarDireccion,
   eliminarDireccion,
 } from '../../api/destinos'
 import { avisar } from '../../utils/avisoCarga'
@@ -87,39 +85,24 @@ export default function Empresas() {
     }
     setGuardando(true)
     try {
+      // La empresa y sus direcciones se guardan en una sola operación: o queda todo o no queda nada.
       const payload = {
         idUsuario: usuario?.id,
         nombre: form.nombre.trim(),
         rfc: form.rfc.trim() || null,
         tipo: form.tipo,
         urlLogo: form.urlLogo.trim() || null,
-      }
-      let idEmpresa
-      if (editando) {
-        await actualizarEmpresa(editando.id, payload)
-        idEmpresa = editando.id
-      } else {
-        const { data } = await crearEmpresa(payload)
-        idEmpresa = data.id
-      }
-      const originales = new Map((editando ? dirPorEmpresa[String(editando.id)] || [] : []).map((d) => [d.id, d]))
-      for (const d of dirsValidas) {
-        const datos = {
+        direcciones: dirsValidas.map((d) => ({
+          id: d.id || null,
           direccion: d.direccion.trim(),
           estado: d.estado.trim(),
           municipio: d.municipio.trim(),
           codigoPostal: (d.codigoPostal || '').trim() || null,
           segmento: (d.segmento || '').trim() || null,
-          idEmpresa: Number(idEmpresa),
-          idUsuario: usuario?.id,
-        }
-        if (d.id) {
-          // Solo se actualizan las que cambiaron.
-          const o = originales.get(d.id)
-          if (o && o.direccion === datos.direccion && o.estado === datos.estado && o.municipio === datos.municipio && (o.codigoPostal || null) === datos.codigoPostal && (o.segmento || null) === datos.segmento) continue
-          await actualizarDireccion(d.id, datos)
-        } else await crearDireccion(datos)
+        })),
       }
+      if (editando) await actualizarEmpresa(editando.id, payload)
+      else await crearEmpresa(payload)
       toast.exito(editando ? 'Empresa actualizada' : 'Empresa registrada')
       setModal(false)
       cargar()

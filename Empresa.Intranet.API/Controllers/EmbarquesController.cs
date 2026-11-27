@@ -1173,6 +1173,7 @@ IF @r < 0 THROW 50000, 'No se pudo reservar el número de embarque, intenta de n
             return this.SinPermiso();
         if (aEliminar.Count > 0 && !await _permisoService.TienePermisoAsync(idUsuario, "embarques", "eliminar"))
             return this.SinPermiso();
+        if (id != null && await EmbarqueCompletadoAsync(id.Value) is { } bloqueo) return bloqueo;
 
         CrearEmbarqueDto Armar(DestinoRequisicionDto d, string? numero)
         {
@@ -1296,6 +1297,7 @@ IF @r < 0 THROW 50000, 'No se pudo reservar el número de embarque, intenta de n
     {
         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
             return this.SinPermiso();
+        if (await EmbarqueCompletadoAsync(id) is { } bloqueo) return bloqueo;
 
         var actual = await _context.Embarques.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id && e.Activo);
         if (actual == null) return NotFound();
@@ -1369,6 +1371,7 @@ IF @r < 0 THROW 50000, 'No se pudo reservar el número de embarque, intenta de n
     {
         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
             return this.SinPermiso();
+        if (await EmbarqueCompletadoAsync(id) is { } bloqueo) return bloqueo;
 
         if ((dto.Documento ?? "").ToLower() != "ciego")
             return BadRequest(new { mensaje = "Documento inválido" });
@@ -1393,6 +1396,7 @@ IF @r < 0 THROW 50000, 'No se pudo reservar el número de embarque, intenta de n
     {
         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
             return this.SinPermiso();
+        if (await EmbarqueCompletadoAsync(id) is { } bloqueo) return bloqueo;
 
         var embarque = await _context.Embarques
             .Include(e => e.HistorialMovimiento).ThenInclude(h => h.DetallesMovimiento).ThenInclude(d => d.Existencia)
@@ -1590,6 +1594,7 @@ IF @r < 0 THROW 50000, 'No se pudo reservar el número de embarque, intenta de n
     {
         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
             return this.SinPermiso();
+        if (await EmbarqueCompletadoAsync(id) is { } bloqueo) return bloqueo;
 
         var embarque = await _context.Embarques
             .Include(e => e.SolicitudDetalles).ThenInclude(d => d.Existencia)
@@ -1744,6 +1749,7 @@ IF @r < 0 THROW 50000, 'No se pudo reservar el número de embarque, intenta de n
     {
         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "editar"))
             return this.SinPermiso();
+        if (await EmbarqueCompletadoAsync(id) is { } bloqueo) return bloqueo;
         var errorRequisicion = ValidarRequisicion(dto);
         if (errorRequisicion != null) return BadRequest(new { mensaje = errorRequisicion });
         var embarque = await _context.Embarques
@@ -1800,8 +1806,9 @@ IF @r < 0 THROW 50000, 'No se pudo reservar el número de embarque, intenta de n
     [HttpDelete("{id}")]
     public async Task<IActionResult> Eliminar(uint id)
     {
-         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "eliminar"))
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "eliminar"))
             return this.SinPermiso();
+        if (await EmbarqueCompletadoAsync(id) is { } bloqueo) return bloqueo;
         var embarque = await _context.Embarques
             .Include(e => e.HistorialMovimiento)
                 .ThenInclude(h => h.DetallesMovimiento)
@@ -1815,5 +1822,45 @@ IF @r < 0 THROW 50000, 'No se pudo reservar el número de embarque, intenta de n
         await tx.CommitAsync();
 
         return NoContent();
+    }
+
+    // Un embarque marcado como Completado ya no se modifica (requisición, solicitud, RT, ciego ni baja; los sellos de la
+    // carta responsiva sí, porque la carta se suele generar al final): primero
+    // hay que reabrirlo con PUT /estado "En proceso". Se revisa todo el número, porque para el usuario es un solo embarque.
+    private async Task<IActionResult?> EmbarqueCompletadoAsync(uint id)
+    {
+        var e = await _context.Embarques.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.Activo);
+        if (e == null) return null;
+        var completado = await _context.Embarques.AsNoTracking()
+            .AnyAsync(x => x.Activo && x.Estado == "Completado" && (e.Numero == null ? x.Id == id : x.Numero == e.Numero));
+        return completado
+            ? Conflict(new { mensaje = "El embarque está completado. Reábrelo para poder modificarlo." })
+            : null;
+    }
+
+    // DELETE api/embarques/5/requisicion — cancela el embarque completo: todos los destinos del mismo número, en una sola
+    // transacción. El producto regresa a su origen y se anulan los pedidos de consignación que había generado.
+    [HttpDelete("{id}/requisicion")]
+    public async Task<IActionResult> CancelarRequisicion(uint id)
+    {
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "embarques", "eliminar"))
+            return this.SinPermiso();
+        if (await EmbarqueCompletadoAsync(id) is { } bloqueo) return bloqueo;
+
+        var referencia = await _context.Embarques.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id && e.Activo);
+        if (referencia == null) return NotFound();
+        var numero = referencia.Numero;
+        var destinos = await _context.Embarques
+            .Include(e => e.HistorialMovimiento).ThenInclude(h => h.DetallesMovimiento)
+            .Include(e => e.SolicitudDetalles)
+            .Where(e => e.Activo && (numero == null ? e.Id == id : e.Numero == numero))
+            .ToListAsync();
+
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        foreach (var e in destinos)
+            await EliminarEmbarqueAsync(e);
+        await tx.CommitAsync();
+
+        return Ok(new { Numero = numero, Cancelados = destinos.Select(e => e.Id) });
     }
 }

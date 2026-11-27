@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../../components/Layout'
+import AvisoEmbarqueCompletado from '../../components/AvisoEmbarqueCompletado'
 import PageHeader from '../../components/PageHeader'
 import Modal from '../../components/Modal'
 import { useToast } from '../../context/ToastContext'
@@ -21,6 +22,7 @@ export default function CiegoDeCarga() {
   // nunca se mezclan sus tarimas entre sí. Cada bloque trae exactamente las tarimas que se
   // especificaron en la Solicitud de ese destino: {idEmbarque, destino, productos, filas}.
   const [bloques, setBloques] = useState([])
+  const [completado, setCompletado] = useState(false) // un embarque Completado solo se consulta
   const [filaAbierta, setFilaAbierta] = useState(null) // "bi-fi" del buscador abierto, o null
   const [posLista, setPosLista] = useState(null) // {left, top, bottom, arriba} de la lista abierta (posición fija)
 
@@ -46,6 +48,7 @@ export default function CiegoDeCarga() {
     getEmbarque(id)
       .then(async (r) => {
         const e = r.data
+        setCompletado(e?.estado === 'Completado')
         const hermanos = e?.numero
           ? await getEmbarquesPorNumero(e.numero)
               .then((x) => (x.data.length ? x.data : [e]))
@@ -190,6 +193,7 @@ export default function CiegoDeCarga() {
       <PageHeader titulo="Ciego de carga" />
 
       <div className="px-6 md:px-10">
+        {completado && <AvisoEmbarqueCompletado />}
         {!hayTarimas ? (
           <p className="mb-4 text-sm text-gray-400">No hay tarimas definidas en la Solicitud de este embarque todavía.</p>
         ) : (
@@ -316,7 +320,7 @@ export default function CiegoDeCarga() {
           </table>
         </div>
 
-        {puede('embarques', 'editar') && (
+        {puede('embarques', 'editar') && !completado && (
           <div className="mt-8 flex justify-end">
             <button
               onClick={() => {

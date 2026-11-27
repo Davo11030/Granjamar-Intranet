@@ -118,7 +118,8 @@ public class DocumentosController : ControllerBase
     public async Task<IActionResult> GetTipos() =>
         Ok(await _context.DocumentosTipo.OrderBy(t => t.Nombre).Select(t => new { t.Id, t.Nombre }).ToListAsync());
 
-    [RequierePermiso("catalogos", "crear")]
+    // Quien registra documentos o entradas también puede dar de alta un tipo nuevo (A1, C1…) al capturar.
+    [RequierePermiso("catalogos", "crear", "documentos/crear", "compras/crear")]
     [HttpPost("tipos")]
     public async Task<IActionResult> CrearTipo([FromBody] CrearDocumentoTipoDto dto)
     {
@@ -140,6 +141,11 @@ public class DocumentosController : ControllerBase
     {
         var tipo = await _context.DocumentosTipo.FindAsync(dto.IdDocumentoTipo);
         if (tipo == null) return BadRequest(new { mensaje = "Tipo de documento no existe" });
+        dto.Numero = (dto.Numero ?? "").Trim();
+        if (dto.Numero.Length == 0) return BadRequest(new { mensaje = "Indica el número del documento" });
+        // Un mismo número y tipo es el mismo documento (las entradas lo buscan así): no se registra dos veces.
+        if (await _context.Documentos.AnyAsync(d => d.Numero == dto.Numero && d.IdDocumentoTipo == dto.IdDocumentoTipo))
+            return BadRequest(new { mensaje = $"Ya existe el {tipo.Nombre} {dto.Numero}; súbele el archivo desde la lista" });
 
         var doc = new Documento
         {
@@ -150,6 +156,8 @@ public class DocumentosController : ControllerBase
         };
         _context.Documentos.Add(doc);
         await _context.SaveChangesAsync();
+        await _auditoria.RegistrarAsync("documentos", doc.Id.ToString(), "CREAR", null,
+            new { doc.Id, doc.Numero, Tipo = tipo.Nombre }, this.IdUsuarioActual());
         return Ok(new { doc.Id, doc.Numero });
     }
 }

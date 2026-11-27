@@ -106,7 +106,7 @@ export default function ProduccionForm({ modo = 'nuevo' }) {
 
   useEffect(() => {
     getProductos().then((r) => setProductos(r.data)).catch(avisar('No se pudieron cargar los productos'))
-    if (!soloLectura) getProducciones().then((r) => setReportes(r.data)).catch(() => {})
+    if (!soloLectura) getProducciones().then((r) => setReportes(r.data)).catch(avisar('No se pudieron cargar los reportes anteriores'))
   }, [soloLectura])
 
   useEffect(() => {

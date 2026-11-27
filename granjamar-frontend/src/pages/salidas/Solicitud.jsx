@@ -2,12 +2,14 @@ import { Fragment, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate } from 'react-router-dom'
 import Layout from '../../components/Layout'
+import AvisoEmbarqueCompletado from '../../components/AvisoEmbarqueCompletado'
 import PageHeader from '../../components/PageHeader'
 import Modal from '../../components/Modal'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import { getEmbarque, getEmbarquesPorNumero, guardarSolicitud } from '../../api/embarques'
 import { getProductos, getUbicaciones } from '../../api/inventario'
+import { avisar } from '../../utils/avisoCarga'
 
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 // En la Solicitud un lote se elige UNA sola vez: un mismo nombre de lote puede haber ingresado
@@ -136,6 +138,7 @@ export default function Solicitud() {
   // Un bloque por destino (un embarque real del back cada uno), en el orden en que el usuario
   // decida mostrarlos — no se pueden mezclar sus renglones entre sí.
   const [bloques, setBloques] = useState([])
+  const [completado, setCompletado] = useState(false) // un embarque Completado solo se consulta
   const [ubicaciones, setUbicaciones] = useState([])
   const [arrastrando, setArrastrando] = useState(null)
   const [confirmar, setConfirmar] = useState(false)
@@ -167,6 +170,7 @@ export default function Solicitud() {
     Promise.all([getEmbarque(id), getProductos(), getUbicaciones()])
       .then(async ([resEmbarque, resProductos, resUbicaciones]) => {
         const e = resEmbarque.data
+        setCompletado(e?.estado === 'Completado')
         const productos = resProductos.data
         setUbicaciones(resUbicaciones.data)
         const hermanos = e?.numero
@@ -283,7 +287,7 @@ export default function Solicitud() {
           }),
         )
       })
-      .catch(() => {})
+      .catch(avisar('No se pudo cargar la solicitud del embarque'))
   }, [id])
 
   const setLote = (bi, fi, loteEspecificaciones) =>
@@ -782,6 +786,7 @@ export default function Solicitud() {
       <PageHeader titulo="Solicitud de embarque" />
 
       <div className="px-6 md:px-10">
+        {completado && <AvisoEmbarqueCompletado />}
         {bloques.length > 1 && (
           <p className="mb-3 text-xs text-gray-400">
             Arrastra el renglón gris de cada destino (⠿) para cambiar el orden en que aparecen.
@@ -1084,7 +1089,7 @@ export default function Solicitud() {
           </table>
         </div>
 
-        {puede('embarques', 'editar') && (
+        {puede('embarques', 'editar') && !completado && (
           <div className="mt-8 flex justify-end">
             <button
               onClick={() => {

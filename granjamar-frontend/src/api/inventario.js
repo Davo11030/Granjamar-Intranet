@@ -50,3 +50,9 @@ export const getHistorialEmpresa = (idEmpresa, codigoProducto, pagina = 1, porPa
   api.get(`/UbicacionProducto/empresa/${idEmpresa}/historial/${encodeURIComponent(codigoProducto)}`, {
     params: { pagina, porPagina },
   })
+
+// Ajuste de inventario de un lote en una bodega: { kilosContados, motivo }. Devuelve { registro, diferencia }.
+export const ajustarInventario = (idUbicacion, datos) => api.post(`/UbicacionProducto/${idUbicacion}/ajuste`, datos)
+
+// Regreso resguardo → Conpaq: { idOrigen (ubicación en el resguardo), idDireccionDestino (bodega de Conpaq), kilos }.
+export const regresoResguardo = (datos) => api.post('/UbicacionProducto/regreso-resguardo', datos)

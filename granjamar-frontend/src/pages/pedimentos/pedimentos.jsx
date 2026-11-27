@@ -10,6 +10,7 @@ import { useToast } from '../../context/ToastContext'
 import { getPedimentos, crearPedimento } from '../../api/pedimentos'
 import {
   getDocumentosTipo,
+  crearDocumentoTipo,
   adjuntarArchivoDocumento,
   abrirArchivoDocumento,
   validarArchivoDocumento,
@@ -30,7 +31,7 @@ export default function Pedimentos() {
   const [modal, setModal] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [subiendoId, setSubiendoId] = useState(null)
-  const [form, setForm] = useState({ numero: '', idTipo: '', lotes: '', descripcion: '', archivo: null })
+  const [form, setForm] = useState({ numero: '', tipo: '', archivo: null })
 
   const cargar = () =>
     getPedimentos().then((r) => setDatos(r.data)).catch(avisar('No se pudieron cargar los pedimentos', () => setErrorCarga(true))).finally(() => setCargando(false))
@@ -74,22 +75,27 @@ export default function Pedimentos() {
 
   const guardar = async () => {
     if (!form.numero.trim()) return toast.advertencia('Indica el número de pedimento o factura')
-    if (!form.idTipo) return toast.advertencia('Elige el tipo de documento')
+    const nombreTipo = form.tipo.trim()
+    if (!nombreTipo) return toast.advertencia('Escribe o elige el tipo de documento')
     if (!form.archivo) return toast.advertencia('Adjunta el documento')
     setGuardando(true)
     let creado = null
     try {
+      // El tipo se elige de la lista o se escribe uno nuevo (A1, C1…); si no existe se da de alta.
+      const existente = tipos.find((t) => t.nombre.toLowerCase() === nombreTipo.toLowerCase())
+      const idTipo = existente ? existente.id : (await crearDocumentoTipo({ nombre: nombreTipo })).data.id
+      if (!existente) getDocumentosTipo().then((x) => setTipos(x.data)).catch(avisar('No se pudieron cargar los tipos de documento'))
       const r = await crearPedimento({
         numero: form.numero.trim(),
         fecha: new Date().toISOString(),
-        idDocumentoTipo: Number(form.idTipo),
+        idDocumentoTipo: Number(idTipo),
         ruta: form.archivo.name,
       })
       creado = r.data
       await adjuntarArchivoDocumento(creado.id, form.archivo)
       toast.exito('Documento registrado')
       setModal(false)
-      setForm({ numero: '', idTipo: '', lotes: '', descripcion: '', archivo: null })
+      setForm({ numero: '', tipo: '', archivo: null })
     } catch (e) {
       toast.error(
         creado
@@ -200,38 +206,23 @@ export default function Pedimentos() {
           </label>
           <label className="block">
             <span className="text-sm font-semibold text-marca">Tipo de pedimento o factura</span>
-            <select
-              className="gm-input mt-1"
-              value={form.idTipo}
-              onChange={(e) => setForm({ ...form, idTipo: e.target.value })}
-            >
-              <option value="">Selecciona…</option>
-              {tipos.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.nombre}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-sm font-semibold text-marca">Lotes a los que corresponde</span>
             <input
               className="gm-input mt-1"
-              value={form.lotes}
-              onChange={(e) => setForm({ ...form, lotes: e.target.value })}
-              placeholder="Escribe aqui.."
+              list="tipos-pedimento"
+              value={form.tipo}
+              onChange={(e) => setForm({ ...form, tipo: e.target.value })}
+              placeholder="Elige de la lista o escribe uno nuevo (A1, C1, Factura…)"
             />
+            <datalist id="tipos-pedimento">
+              {tipos.map((t) => (
+                <option key={t.id} value={t.nombre} />
+              ))}
+            </datalist>
           </label>
-          <label className="block">
-            <span className="text-sm font-semibold text-marca">Descripción de los productos a los que pertenece</span>
-            <textarea
-              rows={3}
-              className="gm-input mt-1"
-              value={form.descripcion}
-              onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
-              placeholder="Escribe aqui..."
-            />
-          </label>
+          <p className="text-xs text-gray-500">
+            Los lotes y productos de cada documento se llenan solos cuando una entrada usa este número; no hace falta
+            capturarlos aquí.
+          </p>
           <div>
             <span className="text-sm font-semibold text-marca">Subir documento aquí</span>
             <button

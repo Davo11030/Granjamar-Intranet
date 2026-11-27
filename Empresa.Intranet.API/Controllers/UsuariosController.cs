@@ -275,16 +275,19 @@ public class UsuariosController : ControllerBase
         var solicitud = await _context.SolicitudesContrasena.Include(s => s.Usuario)
             .FirstOrDefaultAsync(s => s.Id == id);
         if (solicitud == null) return NotFound();
-        if (solicitud.Estado != "Pendiente")
+        // También se puede cancelar una ya aprobada mientras el usuario no haya puesto su nueva contraseña
+        // (p. ej. se aprobó por error o la pidió alguien que no era él).
+        if (solicitud.Estado != "Pendiente" && solicitud.Estado != "Aprobada")
             return BadRequest(new { mensaje = "Esta solicitud ya fue resuelta" });
 
+        var estadoAnterior = solicitud.Estado;
         solicitud.Estado = "Rechazada";
         solicitud.FechaResolucion = DateTime.UtcNow;
         solicitud.IdUsuarioResolucion = this.IdUsuarioActual();
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("solicitudes_contrasena", solicitud.Id.ToString(), "MODIFICAR",
-            new { Estado = "Pendiente" }, new { Estado = "Rechazada", solicitud.Usuario.Nombre },
+            new { Estado = estadoAnterior }, new { Estado = "Rechazada", solicitud.Usuario.Nombre },
             this.IdUsuarioActual());
 
         return NoContent();
@@ -355,6 +358,28 @@ public class UsuariosController : ControllerBase
         var usuario = await _context.Usuarios.FindAsync(id);
         if (usuario == null) return NotFound();
 
+        var nombre = (dto.Nombre ?? "").Trim();
+        if (nombre.Length == 0) return BadRequest(new { mensaje = "El nombre de usuario es obligatorio" });
+        if (string.IsNullOrWhiteSpace(dto.Puesto)) return BadRequest(new { mensaje = "Elige el puesto del usuario" });
+        // Dos usuarios con el mismo nombre romperían el inicio de sesión (se entra por nombre).
+        if (await _context.Usuarios.AnyAsync(u => u.Id != id && u.Nombre == nombre))
+            return BadRequest(new { mensaje = "Ya existe otro usuario con ese nombre" });
+
+        // Nunca puede quedar el sistema sin un administrador activo, ni puede uno quitarse a sí mismo el puesto
+        // (se quedaría fuera de Usuarios sin poder deshacerlo).
+        if (EsPuestoAdmin(usuario.Puesto) && !EsPuestoAdmin(dto.Puesto))
+        {
+            if (id == this.IdUsuarioActual())
+                return BadRequest(new { mensaje = "No puedes quitarte a ti mismo el puesto de administrador" });
+            var otrosAdmins = (await _context.Usuarios
+                    .Where(u => u.Activo && u.Id != id)
+                    .Select(u => u.Puesto)
+                    .ToListAsync())
+                .Count(EsPuestoAdmin);
+            if (otrosAdmins == 0)
+                return BadRequest(new { mensaje = "Debe quedar al menos un administrador" });
+        }
+
         var correo = string.IsNullOrWhiteSpace(dto.Correo) ? null : dto.Correo.Trim();
         if (correo != null && !FormatoCorreo.IsMatch(correo))
             return BadRequest(new { mensaje = "El correo electrónico no es válido" });
@@ -362,8 +387,8 @@ public class UsuariosController : ControllerBase
         var antes = new { usuario.Id, usuario.Nombre, usuario.Puesto, usuario.Correo };
         var cambioContrasena = !string.IsNullOrEmpty(dto.Contrasena);
 
-        usuario.Nombre = dto.Nombre;
-        usuario.Puesto = dto.Puesto;
+        usuario.Nombre = nombre;
+        usuario.Puesto = dto.Puesto.Trim();
         usuario.Correo = correo;
 
         if (cambioContrasena)

@@ -14,6 +14,8 @@ export const cambiarEstadoEmbarque = (id, datos) => api.put(`/Embarques/${id}/es
 export const marcarDocumentoEmbarque = (id, datos) => api.put(`/Embarques/${id}/documento`, datos)
 export const guardarSolicitud = (id, datos) => api.put(`/Embarques/${id}/solicitud`, datos)
 export const guardarRt = (id, datos) => api.put(`/Embarques/${id}/rt`, datos)
+// Cancela el embarque completo (todos los destinos del mismo número); el producto regresa a su origen.
+export const cancelarEmbarqueCompleto = (id) => api.delete(`/Embarques/${id}/requisicion`)
 export const eliminarEmbarque = (id, idUsuario) => api.delete(`/Embarques/${id}?idUsuario=${idUsuario}`)
 // Todo lo que lleva la hoja de Requisición de ese embarque (destino) y la lista de datos que le faltan.
 export const getRequisicion = (id) => api.get(`/Embarques/${id}/requisicion`)

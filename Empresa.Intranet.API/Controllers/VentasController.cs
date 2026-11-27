@@ -161,6 +161,19 @@ public class VentasController : ControllerBase
         if (dto.Descuento is < 0 or > 100) return "El descuento debe estar entre 0 y 100 %";
         if (dto.Detalles.Any(d => d.PrecioKilo < 0)) return "El precio por kilo no puede ser negativo";
         if (dto.Detalles.Any(d => d.Kilos <= 0)) return "Los kilos de cada producto deben ser mayores a 0";
+
+        // El total lo calcula la pantalla, pero el servidor lo comprueba con los renglones: la suma de kilos × precio
+        // (el precio ya trae el descuento del renglón) menos el descuento general. Se tolera una diferencia mínima por
+        // redondeo de centavos; si no cuadra, la venta se rechaza en lugar de guardar un total que no corresponde.
+        if (dto.Detalles.All(d => d.PrecioKilo != null))
+        {
+            var subtotal = dto.Detalles.Sum(d => d.Kilos * d.PrecioKilo!.Value);
+            var esperado = Math.Round(subtotal * (1 - (dto.Descuento ?? 0) / 100m), 2);
+            // Tolerancia: $1, o medio centavo por kilo si es más (el precio por kilo viaja redondeado a centavos).
+            var tolerancia = Math.Max(1m, dto.Detalles.Sum(d => d.Kilos) * 0.005m + 0.01m);
+            if (Math.Abs(esperado - dto.Total) > tolerancia)
+                return $"El total ({dto.Total:N2}) no coincide con los productos ({esperado:N2}). Revisa la venta y vuelve a intentarlo.";
+        }
         return null;
     }
 

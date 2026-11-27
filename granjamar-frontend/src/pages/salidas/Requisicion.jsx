@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import Layout from '../../components/Layout'
+import AvisoEmbarqueCompletado from '../../components/AvisoEmbarqueCompletado'
 import PageHeader from '../../components/PageHeader'
 import Modal from '../../components/Modal'
 import BadgeEmpresa from '../../components/BadgeEmpresa'
@@ -78,13 +79,14 @@ export default function Requisicion() {
   const [confirmar, setConfirmar] = useState(false)
   const [guardando, setGuardando] = useState(false)
   const [embarqueData, setEmbarqueData] = useState(null)
+  const completado = embarqueData?.estado === 'Completado'
   const [eliminados, setEliminados] = useState([]) // ids de embarques (destinos) que se quitan al guardar
   const [listo, setListo] = useState(!esEdicion)
   const reconstruido = useRef(false)
 
   useEffect(() => {
     getDirecciones().then((r) => setDestinos(r.data)).catch(avisar('No se pudieron cargar los destinos'))
-    getClientes().then((r) => setClientes(r.data)).catch(() => {})
+    getClientes().then((r) => setClientes(r.data)).catch(avisar('No se pudieron cargar los clientes'))
     getProductos().then((r) => setProductos(r.data)).catch(avisar('No se pudieron cargar los productos'))
     getUbicaciones().then((r) => setUbicaciones(r.data)).catch(avisar('No se pudieron cargar las existencias por ubicación'))
     getEmpresas().then((r) => setEmpresas(r.data)).catch(avisar('No se pudieron cargar las empresas'))
@@ -346,6 +348,7 @@ export default function Requisicion() {
       <PageHeader titulo="Requisicion de embarque" />
 
       <div className="px-6 md:px-10">
+        {completado && <AvisoEmbarqueCompletado />}
         <div className="mb-4 flex flex-wrap items-center gap-6">
           <label className="flex items-center gap-3 text-teal font-semibold">
             No. Embarque:
@@ -616,7 +619,7 @@ export default function Requisicion() {
           </label>
         </div>
 
-        {puede('embarques', esEdicion ? 'editar' : 'crear') && (
+        {puede('embarques', esEdicion ? 'editar' : 'crear') && !completado && (
           <div className="mt-8 flex justify-end">
             <button
               onClick={() => {

@@ -126,6 +126,30 @@ app.Use(async (contexto, siguiente) =>
     }
 });
 app.UseAuthentication();
+// El puesto viaja en el token (8 h), pero se toma el de la base en cada petición: si el administrador le quita el
+// puesto de admin a alguien o lo da de baja, el cambio aplica de inmediato y no hasta que su sesión venza.
+app.Use(async (contexto, siguiente) =>
+{
+    var identidad = contexto.User.Identity as System.Security.Claims.ClaimsIdentity;
+    if (identidad?.IsAuthenticated == true
+        && uint.TryParse(identidad.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var idUsuario))
+    {
+        var db = contexto.RequestServices.GetRequiredService<AppDbContext>();
+        var actual = await db.Usuarios.AsNoTracking()
+            .Where(u => u.Id == idUsuario)
+            .Select(u => new { u.Activo, u.Puesto })
+            .FirstOrDefaultAsync();
+        if (actual == null || !actual.Activo)
+        {
+            contexto.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await contexto.Response.WriteAsJsonAsync(new { mensaje = "Tu usuario ya no está activo. Pide ayuda al administrador." });
+            return;
+        }
+        foreach (var claim in identidad.FindAll("puesto").ToList()) identidad.RemoveClaim(claim);
+        identidad.AddClaim(new System.Security.Claims.Claim("puesto", actual.Puesto ?? ""));
+    }
+    await siguiente();
+});
 app.UseAuthorization();
 app.MapControllers();
 

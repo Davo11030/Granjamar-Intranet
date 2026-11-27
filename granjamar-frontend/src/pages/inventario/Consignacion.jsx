@@ -64,7 +64,8 @@ export default function InventarioConsignacion() {
   useEffect(() => {
     getSolicitudesProduccion(empresaId)
       .then((r) => setSolicitudesPendientes(r.data.filter((s) => !s.idPedido).length))
-      .catch(() => {})
+      // Solo es el contador del botón: si falla, el botón queda sin número y la página sigue sirviendo.
+      .catch((e) => console.error('Solicitudes de producción pendientes', e))
   }, [empresaId])
 
   const abrirModal = () => {

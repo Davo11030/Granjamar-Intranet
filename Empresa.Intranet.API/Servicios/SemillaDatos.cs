@@ -12,7 +12,8 @@ public static class SemillaDatos
     private static readonly string[] TiposMovimiento =
     {
         "Compra", "Venta", "Embarque", "Produccion", "Traspaso de producción",
-        "Salida a resguardo", "Traspaso a resguardo"
+        "Salida a resguardo", "Traspaso a resguardo", "Ajuste positivo", "Ajuste negativo",
+        "Salida de resguardo", "Traspaso desde resguardo"
     };
 
     // Catálogo de permisos (módulo, acción, descripción) que usan la API y la web.
@@ -36,6 +37,7 @@ public static class SemillaDatos
         ("produccion", "ver", "Ver producción"),
         ("produccion", "crear", "Registrar producción"),
         ("produccion", "editar", "Editar producción"),
+        ("produccion", "eliminar", "Eliminar reportes de producción"),
         ("productos", "ver", "Ver el kardex de productos"),
         ("productos", "crear", "Crear productos"),
         ("productos", "editar", "Editar productos"),

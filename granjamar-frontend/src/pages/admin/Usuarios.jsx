@@ -42,7 +42,8 @@ const MODULOS = [
   ['catalogos', 'Catálogos (operadores, claves SAT, tallas…)'],
 ]
 const ACCIONES = ['ver', 'crear', 'editar', 'eliminar', 'corte']
-const ETIQUETA_ACCION = { corte: 'corte de caja' }
+// "corte" solo existe en ventas: en la tabla de permisos va como casilla aparte, no como columna vacía.
+const COLUMNAS = ACCIONES.filter((a) => a !== 'corte')
 const PUESTOS = ['admin', 'lic', 'gerente', 'supervisor', 'inge']
 
 export default function Usuarios() {
@@ -81,7 +82,9 @@ export default function Usuarios() {
     try {
       if (accion === 'aprobar') await aprobarSolicitud(id)
       else await rechazarSolicitud(id)
-      toast.exito(accion === 'aprobar' ? 'Solicitud aprobada' : 'Solicitud rechazada')
+      toast.exito(
+        accion === 'aprobar' ? 'Solicitud aprobada' : accion === 'cancelar' ? 'Restablecimiento cancelado' : 'Solicitud rechazada',
+      )
       cargar()
     } catch (e) {
       toast.error(e.response?.data?.mensaje || 'No se pudo actualizar la solicitud')
@@ -194,11 +197,12 @@ export default function Usuarios() {
   const grid = MODULOS.map(([modulo, etiqueta]) => ({
     modulo,
     etiqueta,
-    acciones: ACCIONES.map((accion) => ({
+    acciones: COLUMNAS.map((accion) => ({
       accion,
       permiso: permisos.find((p) => p.modulo === modulo && p.accion === accion),
     })),
   }))
+  const permisoCorte = permisos.find((p) => p.modulo === 'ventas' && p.accion === 'corte')
 
   return (
     <Layout>
@@ -230,9 +234,14 @@ export default function Usuarios() {
                       </button>
                     </div>
                   ) : (
-                    <span className="text-xs text-teal">
-                      Aprobada — esperando que el usuario ponga su nueva contraseña
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-teal">
+                        Aprobada — esperando que el usuario ponga su nueva contraseña
+                      </span>
+                      <button className="gm-pill" onClick={() => resolverSolicitud(s.id, 'cancelar')}>
+                        Cancelar
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
@@ -383,9 +392,9 @@ export default function Usuarios() {
             <thead>
               <tr className="border-b border-gray-200">
                 <th className="py-2 px-3 text-left">Módulo</th>
-                {ACCIONES.map((a) => (
+                {COLUMNAS.map((a) => (
                   <th key={a} className="py-2 px-3 text-center capitalize">
-                    {ETIQUETA_ACCION[a] || a}
+                    {a}
                   </th>
                 ))}
               </tr>
@@ -413,6 +422,19 @@ export default function Usuarios() {
             </tbody>
           </table>
         </div>
+        {permisoCorte && (
+          <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-teal"
+              checked={permisosUsuario.some((p) => p.id === permisoCorte.id)}
+              onChange={() => toggle(permisoCorte)}
+            />
+            <span>
+              <span className="font-semibold">Ventas:</span> puede hacer el corte de caja
+            </span>
+          </label>
+        )}
         <p className="mt-4 text-xs text-gray-400">
           Los cambios se aplican de inmediato en el servidor; el usuario ve los menús y botones nuevos al recargar la página.
           "Ver" lo tiene automáticamente quien pueda crear, editar o eliminar en ese módulo. Los administradores tienen todos los permisos.

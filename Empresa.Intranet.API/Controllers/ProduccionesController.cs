@@ -405,6 +405,42 @@ public class ProduccionesController : ControllerBase
         try { return await GuardarAsync(dto, dia); }
         finally { ProduccionService.Candado.Release(); }
     }
+
+    // DELETE api/producciones/reporte/2026-10-22 — elimina el reporte del día: deshace sus salidas (los lotes que ingresaron
+    // a Conpaq) igual que al editar, y lo que tomó de lo desbloqueado vuelve a estar disponible. No se puede si los lotes
+    // de sus salidas ya se usaron (vendidos, embarcados o metidos a otro reporte).
+    [HttpDelete("reporte/{fecha}")]
+    public async Task<IActionResult> EliminarReporte(string fecha)
+    {
+        if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "produccion", "eliminar"))
+            return this.SinPermiso();
+        if (!ProduccionService.TryDia(fecha, out var dia)) return BadRequest(new { mensaje = "Fecha inválida" });
+        await ProduccionService.Candado.WaitAsync();
+        try
+        {
+            await using var tx = await _context.Database.BeginTransactionAsync();   // sin commit: se descarta
+            var filas = await _context.ProduccionReporte.Where(f => f.Activo && f.Fecha.Date == dia).ToListAsync();
+            if (filas.Count == 0) return NotFound();
+            var snapshot = new { fecha = dia, renglones = filas.Count, detalles = await DetallesAuditoriaAsync(filas) };
+            foreach (var s in filas.Where(v => v.Etapa == ProduccionReporteFila.Salida))
+            {
+                var error = await _prod.RevisarDeshacerSalidaAsync(s);
+                if (error != null) return BadRequest(new { mensaje = error });
+            }
+            foreach (var s in filas.Where(v => v.Etapa == ProduccionReporteFila.Salida)) await _prod.DeshacerSalidaAsync(s);
+            _context.ProduccionReporte.RemoveRange(filas);
+            await _context.SaveChangesAsync();
+
+            // Otro día posterior pudo haber usado el M.P. o lo desbloqueado que este reporte dejaba: se revisa la línea de tiempo.
+            var errorLinea = await _prod.ValidarLineaDeTiempoAsync();
+            if (errorLinea != null) return BadRequest(new { mensaje = errorLinea });
+            await tx.CommitAsync();
+
+            await _auditoria.RegistrarAsync("producciones", dia.ToString("yyyy-MM-dd"), "ELIMINAR", snapshot, null, this.IdUsuarioActual());
+            return NoContent();
+        }
+        finally { ProduccionService.Candado.Release(); }
+    }
 }
 
 public class CrearProduccionDto

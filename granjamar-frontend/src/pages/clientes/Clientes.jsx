@@ -96,8 +96,8 @@ export default function Clientes() {
       toast.exito(`Cliente ${confirmar.nombre} desactivado`)
       setConfirmar(null)
       cargar()
-    } catch {
-      toast.error('No se pudo desactivar el cliente')
+    } catch (e) {
+      toast.error(e.response?.data?.mensaje || 'No se pudo desactivar el cliente')
     }
   }
 

@@ -10,7 +10,7 @@ import Modal from '../../components/Modal'
 import AgregarBoton from '../../components/AgregarBoton'
 import { useToast } from '../../context/ToastContext'
 import usePaginacion from '../../hooks/usePaginacion'
-import { getUbicacionesPorEmpresa, getUbicaciones, getProductos, traspasoResguardo } from '../../api/inventario'
+import { getUbicacionesPorEmpresa, getUbicaciones, getProductos, traspasoResguardo, regresoResguardo } from '../../api/inventario'
 import { getEmpresas, getDirecciones } from '../../api/destinos'
 import { avisar } from '../../utils/avisoCarga'
 
@@ -31,11 +31,12 @@ export default function InventarioResguardo() {
   const [productos, setProductos] = useState({})
   const [cargando, setCargando] = useState(true)
   const [busqueda, setBusqueda] = useState('')
-  const [modoHistorial, setModoHistorial] = useState(false)
 
   // modal "Producto" — traspaso: el producto ya lo tenemos en Conpaq (inventario local)
   // y aquí solo se traslada su custodia a la empresa de resguardo.
   const [modal, setModal] = useState(false)
+  // 'ida' = Conpaq → resguardo; 'regreso' = resguardo → Conpaq.
+  const [sentido, setSentido] = useState('ida')
   const [origenes, setOrigenes] = useState([])
   const [direcciones, setDirecciones] = useState([])
   const [form, setForm] = useState({ idOrigen: '', idDireccion: '', cantidadKilos: '' })
@@ -54,37 +55,50 @@ export default function InventarioResguardo() {
   }
   useEffect(cargar, [empresaId])
 
-  const abrirModal = () => {
+  const abrirModal = (nuevoSentido = 'ida') => {
+    setSentido(nuevoSentido)
     setForm({ idOrigen: '', idDireccion: '', cantidadKilos: '' })
+    setOrigenes([])
+    setDirecciones([])
     setModal(true)
     Promise.all([getUbicaciones(), getEmpresas(), getDirecciones()])
       .then(([ubs, emps, dirs]) => {
         const interna = emps.data.find(
           (e) => e.tipo?.toLowerCase() === 'interna' || /granjamar/i.test(e.nombre),
         )
-        const locales = interna
-          ? ubs.data.filter((u) => String(u.idEmpresa) === String(interna.id) && Number(u.cantidadKilos) > 0)
-          : []
-        setOrigenes(locales)
-        setDirecciones((dirs.data || []).filter((d) => String(d.idEmpresa) === String(empresaId)))
+        const deEmpresa = (id) => (x) => id != null && String(x.idEmpresa) === String(id)
+        if (nuevoSentido === 'regreso') {
+          setOrigenes(ubs.data.filter((u) => deEmpresa(empresaId)(u) && Number(u.cantidadKilos) > 0))
+          setDirecciones((dirs.data || []).filter(deEmpresa(interna?.id)))
+        } else {
+          setOrigenes(ubs.data.filter((u) => deEmpresa(interna?.id)(u) && Number(u.cantidadKilos) > 0))
+          setDirecciones((dirs.data || []).filter(deEmpresa(empresaId)))
+        }
       })
-      .catch(() => toast.error('No se pudieron cargar los catálogos'))
+      .catch(avisar('No se pudieron cargar los catálogos'))
   }
+  const regreso = sentido === 'regreso'
+  const nombreResguardo = empresa?.nombre || 'resguardo'
 
   const origenSel = origenes.find((o) => String(o.id) === String(form.idOrigen))
 
   const guardarProducto = async () => {
-    if (!origenSel) return toast.advertencia('Selecciona el producto de Conpaq a trasladar')
-    if (!form.idDireccion) return toast.advertencia('Selecciona la bodega de resguardo destino')
+    if (!origenSel) return toast.advertencia(regreso ? 'Selecciona el lote a regresar' : 'Selecciona el producto de Conpaq a trasladar')
+    if (!form.idDireccion) return toast.advertencia(regreso ? 'Selecciona la bodega de Conpaq destino' : 'Selecciona la bodega de resguardo destino')
     const cant = Number(form.cantidadKilos)
     if (!cant || cant <= 0) return toast.advertencia('Ingresa una cantidad de kilos a trasladar')
     if (cant > Number(origenSel.cantidadKilos))
-      return toast.advertencia(`Solo hay ${kg(origenSel.cantidadKilos)} kg disponibles en Conpaq`)
+      return toast.advertencia(`Solo hay ${kg(origenSel.cantidadKilos)} kg disponibles en ${regreso ? nombreResguardo : 'Conpaq'}`)
 
     setGuardando(true)
     try {
-      const r = await traspasoResguardo({ idOrigen: origenSel.id, idDireccionDestino: Number(form.idDireccion), kilos: cant })
-      toast.exito(`Traspaso registrado (salida #${r.data.registro}): ${kg(cant)} kg a ${empresa?.nombre || 'resguardo'}`)
+      const enviar = regreso ? regresoResguardo : traspasoResguardo
+      const r = await enviar({ idOrigen: origenSel.id, idDireccionDestino: Number(form.idDireccion), kilos: cant })
+      toast.exito(
+        regreso
+          ? `Regreso registrado (#${r.data.registro}): ${kg(cant)} kg de ${nombreResguardo} a Conpaq`
+          : `Traspaso registrado (salida #${r.data.registro}): ${kg(cant)} kg a ${nombreResguardo}`,
+      )
       setModal(false)
       cargar()
     } catch (e) {
@@ -134,19 +148,13 @@ export default function InventarioResguardo() {
   return (
     <Layout>
       <PageHeader
-        titulo={modoHistorial ? 'Historial de productos' : 'Producto resguardado'}
-        subtitulo={`${modoHistorial ? 'resguardados en' : 'en'} ${empresa?.nombre || '…'}`}
+        titulo="Producto resguardado"
+        subtitulo={`en ${empresa?.nombre || '…'}`}
       />
 
       <div className="px-6 md:px-10">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
-            <button
-              className={`gm-pill ${modoHistorial ? 'ring-2 ring-teal' : ''}`}
-              onClick={() => setModoHistorial((v) => !v)}
-            >
-              Historial completo
-            </button>
             <Buscador
               valor={busqueda}
               onChange={(v) => {
@@ -159,7 +167,12 @@ export default function InventarioResguardo() {
           </div>
           <div className="flex items-center gap-4">
             <span className="text-sm font-semibold text-teal">Valor total: {money(valorTotal)}</span>
-            {puede('inventario', 'editar') && <AgregarBoton onClick={abrirModal}>Producto</AgregarBoton>}
+            {puede('inventario', 'editar') && datos.some((d) => Number(d.cantidadKilos) > 0) && (
+              <button className="gm-pill" onClick={() => abrirModal('regreso')}>
+                Regresar a Conpaq
+              </button>
+            )}
+            {puede('inventario', 'editar') && <AgregarBoton onClick={() => abrirModal('ida')}>Producto</AgregarBoton>}
           </div>
         </div>
 
@@ -175,7 +188,7 @@ export default function InventarioResguardo() {
                     <th>Descripcion</th>
                     <th className="text-right">Existencia KG</th>
                     <th className="text-right">Existencia Caja</th>
-                    <th className="text-right">Costo unitario</th>
+                    <th className="text-right" title="Precio por kilo del Kardex">Precio x kg</th>
                     <th className="text-right">Valor total</th>
                     <th aria-hidden="true" />
                   </tr>
@@ -216,14 +229,17 @@ export default function InventarioResguardo() {
         )}
       </div>
 
-      <Modal abierto={modal} onCerrar={() => setModal(false)} titulo="Trasladar producto a resguardo" ancho="max-w-lg">
+      <Modal abierto={modal} onCerrar={() => setModal(false)} titulo={regreso ? 'Regresar producto a Conpaq' : 'Trasladar producto a resguardo'}
+        ancho="max-w-lg"
+      >
         <p className="mb-4 text-sm text-gray-500">
-          El resguardo es un traspaso de nuestro inventario local (Conpaq): selecciona qué producto y
-          cuántos kilos salen de Conpaq hacia {empresa?.nombre || 'esta empresa'}.
+          {regreso
+            ? `Selecciona qué lote y cuántos kilos salen de ${nombreResguardo} y regresan a una bodega de Conpaq.`
+            : `El resguardo es un traspaso de nuestro inventario local (Conpaq): selecciona qué producto y cuántos kilos salen de Conpaq hacia ${nombreResguardo}.`}
         </p>
         <div className="space-y-4">
           <label className="block">
-            <span className="text-sm font-semibold text-gray-700">Producto en Conpaq</span>
+            <span className="text-sm font-semibold text-gray-700">{regreso ? `Lote en ${nombreResguardo}` : 'Producto en Conpaq'}</span>
             <select
               className="gm-input mt-1"
               value={form.idOrigen}
@@ -237,12 +253,14 @@ export default function InventarioResguardo() {
               ))}
             </select>
             {origenes.length === 0 && (
-              <span className="gm-error">No hay existencias con stock en Conpaq para trasladar.</span>
+              <span className="gm-error">
+                {regreso ? 'No hay lotes con kilos en este resguardo.' : 'No hay existencias con stock en Conpaq para trasladar.'}
+              </span>
             )}
           </label>
 
           <label className="block">
-            <span className="text-sm font-semibold text-gray-700">Bodega de {empresa?.nombre || 'resguardo'} destino</span>
+            <span className="text-sm font-semibold text-gray-700">Bodega de {regreso ? 'Conpaq' : nombreResguardo} destino</span>
             <select
               className="gm-input mt-1"
               value={form.idDireccion}
@@ -257,7 +275,7 @@ export default function InventarioResguardo() {
             </select>
             {direcciones.length === 0 && (
               <span className="gm-error">
-                {empresa?.nombre || 'Esta empresa'} no tiene direcciones. Agrégalas en Empresas o en Otros → Destinos.
+                {regreso ? 'Conpaq' : nombreResguardo} no tiene direcciones. Agrégalas en Empresas o en Otros → Destinos.
               </span>
             )}
           </label>
@@ -275,7 +293,7 @@ export default function InventarioResguardo() {
             />
             {origenSel && (
               <span className="mt-1 block text-xs text-gray-400">
-                Disponible en Conpaq: {kg(origenSel.cantidadKilos)} kg
+                Disponible en {regreso ? nombreResguardo : 'Conpaq'}: {kg(origenSel.cantidadKilos)} kg
               </span>
             )}
           </label>

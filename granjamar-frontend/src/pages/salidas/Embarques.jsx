@@ -29,7 +29,7 @@ export default function Embarques() {
   useEffect(() => {
     getEmbarques().then((r) => setDatos(r.data)).catch(avisar('No se pudieron cargar los embarques', () => setErrorCarga(true))).finally(() => setCargando(false))
     getDirecciones().then((r) => setDestinos(r.data)).catch(avisar('No se pudieron cargar los destinos'))
-    getClientes().then((r) => setClientes(r.data)).catch(() => {})
+    getClientes().then((r) => setClientes(r.data)).catch(avisar('No se pudieron cargar los clientes'))
   }, [])
 
   // Filtro por destino/fecha opera sobre los registros individuales (cada uno es un destino real

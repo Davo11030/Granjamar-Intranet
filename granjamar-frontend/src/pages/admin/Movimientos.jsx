@@ -129,6 +129,10 @@ export default function Movimientos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // El servidor regresa como máximo los 2,000 movimientos más recientes que cumplan los filtros.
+  const LIMITE = 2000
+  const recortado = datos.length >= LIMITE
+
   const datosVista = useMemo(
     () => (soloProducto ? datos.filter((d) => TABLAS_PRODUCTO.has(String(d.tabla || '').toLowerCase())) : datos),
     [datos, soloProducto],
@@ -285,6 +289,11 @@ export default function Movimientos() {
 
         {error && (
           <p className="mb-4 rounded bg-red-50 px-4 py-2 text-sm text-red-600">{error}</p>
+        )}
+        {recortado && !cargando && (
+          <p className="mb-4 rounded bg-amber-50 px-4 py-2 text-sm text-amber-800">
+            Se muestran los {LIMITE.toLocaleString('es-MX')} movimientos más recientes. Usa las fechas o los filtros para ver los anteriores.
+          </p>
         )}
 
         {cargando ? (

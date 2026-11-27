@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { getMisPermisos } from '../api/permisos'
+import { getPerfil } from '../api/usuarios'
 
 const AuthContext = createContext()
 
@@ -31,6 +32,19 @@ export function AuthProvider({ children }) {
   const [permisos, setPermisos] = useState(null)
 
   const cargarPermisos = useCallback(() => {
+    // El puesto guardado al iniciar sesión puede haber cambiado (p. ej. le quitaron el puesto de admin): se toma el
+    // actual del servidor para que los menús coincidan con lo que el servidor permite.
+    getPerfil()
+      .then(({ data }) =>
+        setUsuario((u) => {
+          if (!u || u.puesto === data.puesto) return u
+          const nuevo = { ...u, puesto: data.puesto }
+          localStorage.setItem('usuario', JSON.stringify(nuevo))
+          return nuevo
+        }),
+      )
+      // Si falla se queda el puesto guardado; los permisos de abajo siguen cargándose.
+      .catch((e) => console.error('Perfil', e))
     return getMisPermisos()
       .then((r) => setPermisos(new Set(r.data.map((p) => `${p.modulo}:${p.accion}`))))
       .catch(() => setPermisos(new Set()))

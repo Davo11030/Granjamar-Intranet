@@ -6,9 +6,11 @@ import Paginacion from '../../components/Paginacion'
 import Cargando from '../../components/Cargando'
 import Modal from '../../components/Modal'
 import usePaginacion from '../../hooks/usePaginacion'
-import { getUbicaciones, getProductos } from '../../api/inventario'
+import { getUbicaciones, getProductos, ajustarInventario } from '../../api/inventario'
 import { getEmpresas } from '../../api/destinos'
 import { avisar } from '../../utils/avisoCarga'
+import { useAuth } from '../../context/AuthContext'
+import { useToast } from '../../context/ToastContext'
 
 const kg = (n) =>
   Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -22,16 +24,22 @@ export default function Conpaq() {
   const [cargando, setCargando] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [lotesDe, setLotesDe] = useState(null)
+  const [sinInterna, setSinInterna] = useState(false)
+  const [ajuste, setAjuste] = useState(null) // { lote, kilos, motivo } del lote que se está ajustando
+  const [guardandoAjuste, setGuardandoAjuste] = useState(false)
+  const { puede } = useAuth()
+  const toast = useToast()
 
-  useEffect(() => {
+  const cargar = () =>
     Promise.all([getUbicaciones(), getEmpresas(), getProductos()])
       .then(([ubs, emps, prods]) => {
-        const interna = emps.data.find(
-          (e) => e.tipo?.toLowerCase() === 'interna' || /granjamar/i.test(e.nombre),
+        // Conpaq es el inventario propio: el de las empresas INTERNAS. Si todavía no hay ninguna dada de alta no se
+        // muestra nada (antes se mezclaba el inventario de todas las empresas, incluidas consignación y resguardo).
+        const internas = new Set(
+          emps.data.filter((e) => e.tipo?.toLowerCase() === 'interna' || /granjamar/i.test(e.nombre)).map((e) => String(e.id)),
         )
-        const filas = interna
-          ? ubs.data.filter((u) => String(u.idEmpresa) === String(interna.id))
-          : ubs.data
+        setSinInterna(internas.size === 0)
+        const filas = ubs.data.filter((u) => internas.has(String(u.idEmpresa)))
         setDatos(filas)
         setProductos(
           Object.fromEntries((prods.data || []).map((p) => [p.codigo, p])),
@@ -39,7 +47,29 @@ export default function Conpaq() {
       })
       .catch(avisar('No se pudo cargar el inventario', () => setErrorCarga(true)))
       .finally(() => setCargando(false))
+  useEffect(() => {
+    cargar()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const guardarAjuste = async () => {
+    const kilos = Number(ajuste.kilos)
+    if (ajuste.kilos === '' || !(kilos >= 0)) return toast.advertencia('Escribe los kilos que hay físicamente (0 o más)')
+    if (!ajuste.motivo.trim()) return toast.advertencia('Escribe el motivo del ajuste')
+    setGuardandoAjuste(true)
+    try {
+      const { data } = await ajustarInventario(ajuste.lote.id, { kilosContados: kilos, motivo: ajuste.motivo.trim() })
+      const dif = Number(data.diferencia)
+      toast.exito(`Ajuste registrado (#${data.registro}): ${dif > 0 ? '+' : '−'}${kg(Math.abs(dif))} kg en el lote ${ajuste.lote.lote}`)
+      setAjuste(null)
+      setLotesDe(null)
+      cargar()
+    } catch (e) {
+      toast.error(e.response?.data?.mensaje || 'No se pudo registrar el ajuste')
+    } finally {
+      setGuardandoAjuste(false)
+    }
+  }
 
   const filtrados = useMemo(
     () =>
@@ -149,7 +179,7 @@ export default function Conpaq() {
                   {porProducto.length === 0 && (
                     <tr>
                       <td colSpan={7} className="text-center !py-12 text-gray-400">
-                        {busqueda ? 'Sin resultados para esa búsqueda' : (errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : 'Sin existencias registradas en Conpaq')}
+                        {busqueda ? 'Sin resultados para esa búsqueda' : (errorCarga ? 'No se pudo cargar la información. Recarga la página para intentar de nuevo.' : sinInterna ? 'No hay ninguna empresa de tipo INTERNA. Dala de alta en Admin → Empresas para ver aquí su inventario.' : 'Sin existencias registradas en Conpaq')}
                       </td>
                     </tr>
                   )}
@@ -174,6 +204,7 @@ export default function Conpaq() {
                 <th>Lote</th>
                 <th className="text-right">Kilos</th>
                 <th>Pedimento</th>
+                {puede('inventario', 'editar') && <th aria-hidden="true" />}
               </tr>
             </thead>
             <tbody>
@@ -184,6 +215,13 @@ export default function Conpaq() {
                   <td className="text-sm">
                     {l.numeroDocumento ? `${l.tipoDocumento ? `${l.tipoDocumento} — ` : ''}${l.numeroDocumento}` : '—'}
                   </td>
+                  {puede('inventario', 'editar') && (
+                    <td className="text-right">
+                      <button className="text-xs font-semibold text-marca underline" onClick={() => setAjuste({ lote: l, kilos: '', motivo: '' })}>
+                        Ajustar
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -192,6 +230,45 @@ export default function Conpaq() {
         <div className="mt-6 flex justify-end">
           <button className="gm-btn-guardar" onClick={() => setLotesDe(null)}>
             Cerrar
+          </button>
+        </div>
+      </Modal>
+      <Modal abierto={!!ajuste} onCerrar={() => setAjuste(null)} ancho="max-w-md" titulo={ajuste ? `Ajustar lote ${ajuste.lote.lote}` : ''}>
+        {ajuste && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Registrados: <strong>{kg(ajuste.lote.cantidadKilos)} kg</strong>. Escribe lo que hay físicamente; la diferencia queda como
+              ajuste en el historial y en Movimientos, con su motivo.
+            </p>
+            <label className="block">
+              <span className="text-sm font-semibold text-marca">Kilos contados *</span>
+              <input
+                type="number"
+                min="0"
+                step="0.001"
+                className="gm-input mt-1"
+                autoFocus
+                value={ajuste.kilos}
+                onChange={(e) => setAjuste({ ...ajuste, kilos: e.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-semibold text-marca">Motivo *</span>
+              <input
+                className="gm-input mt-1"
+                placeholder="Conteo físico, merma, producto dañado…"
+                value={ajuste.motivo}
+                onChange={(e) => setAjuste({ ...ajuste, motivo: e.target.value })}
+              />
+            </label>
+          </div>
+        )}
+        <div className="mt-8 flex justify-between">
+          <button className="gm-btn-cancelar" onClick={() => setAjuste(null)}>
+            Cancelar
+          </button>
+          <button className="gm-btn-guardar" onClick={guardarAjuste} disabled={guardandoAjuste}>
+            {guardandoAjuste ? 'Guardando…' : 'Registrar ajuste'}
           </button>
         </div>
       </Modal>

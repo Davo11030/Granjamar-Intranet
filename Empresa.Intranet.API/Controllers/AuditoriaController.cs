@@ -18,6 +18,9 @@ public class AuditoriaController : ControllerBase
     private readonly AppDbContext _context;
     public AuditoriaController(AppDbContext context) => _context = context;
 
+    public const int LimitePorDefecto = 2000;
+    private const int LimiteMaximo = 20000;
+
     [HttpGet]
     public async Task<IActionResult> GetTodos(
         [FromQuery] string? tabla,
@@ -25,8 +28,12 @@ public class AuditoriaController : ControllerBase
         [FromQuery] string? accion,
         [FromQuery] string? usuario,
         [FromQuery] DateTime? desde,
-        [FromQuery] DateTime? hasta)
+        [FromQuery] DateTime? hasta,
+        [FromQuery] int? limite)
     {
+        // Tope de renglones: la tabla crece con cada guardado y traerla completa hace lenta la pantalla.
+        // Se regresan los más recientes; con fechas o filtros se llega a los anteriores.
+        var tope = Math.Clamp(limite ?? LimitePorDefecto, 1, LimiteMaximo);
         var hastaFin = hasta?.Date.AddDays(1).AddTicks(-1);
 
         var lista = await _context.Auditorias
@@ -38,6 +45,7 @@ public class AuditoriaController : ControllerBase
                      && (desde == null || a.Fecha >= desde)
                      && (hastaFin == null || a.Fecha <= hastaFin))
             .OrderByDescending(a => a.Fecha)
+            .Take(tope)
             .Select(a => new
             {
                 a.Id,

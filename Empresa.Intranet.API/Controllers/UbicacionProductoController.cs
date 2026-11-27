@@ -309,6 +309,122 @@ public async Task<IActionResult> GetTodos(
         return Ok(new { registro = historial.Id });
     }
 
+    // POST api/ubicacionproducto/regreso-resguardo — lo contrario del traspaso a resguardo: regresa kilos de un lote que
+    // está en una empresa de resguardo a una bodega propia (Conpaq). Misma forma: una transacción, un registro interno
+    // con su salida del resguardo y su entrada a Conpaq.
+    [HttpPost("regreso-resguardo")]
+    public async Task<IActionResult> RegresoResguardo([FromBody] TraspasoResguardoDto dto)
+    {
+        var rechazo = await ValidarEdicion(dto.Kilos);
+        if (rechazo != null) return rechazo;
+        if (dto.Kilos <= 0) return BadRequest(new { mensaje = "Indica los kilos a regresar" });
+
+        var origen = await _context.UbicacionesProducto
+            .Include(u => u.Direccion).ThenInclude(d => d.Empresa)
+            .FirstOrDefaultAsync(u => u.Id == dto.IdOrigen);
+        if (origen == null) return BadRequest(new { mensaje = "No existe esa ubicación de origen" });
+        if (origen.Direccion.Empresa == null
+            || !string.Equals(origen.Direccion.Empresa.Tipo, "resguardo", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { mensaje = "El origen debe ser producto en una empresa de resguardo" });
+        if (dto.Kilos > origen.CantidadKilos)
+            return BadRequest(new { mensaje = $"Solo hay {origen.CantidadKilos:0.##} kg de ese lote en el resguardo" });
+
+        var destino = await _context.Direcciones.Include(d => d.Empresa)
+            .FirstOrDefaultAsync(d => d.Id == dto.IdDireccionDestino && d.Activo);
+        if (destino?.Empresa == null
+            || !(string.Equals(destino.Empresa.Tipo, "interna", StringComparison.OrdinalIgnoreCase)
+                 || destino.Empresa.Nombre.Contains("granjamar", StringComparison.OrdinalIgnoreCase)))
+            return BadRequest(new { mensaje = "La bodega destino debe ser de Conpaq (empresa interna)" });
+
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        var tipoSalida = await TipoMovimientoAsync("Salida de resguardo");
+        var tipoEntrada = await TipoMovimientoAsync("Traspaso desde resguardo");
+        var historial = new HistorialMovimiento { FechaRegistro = DateTime.UtcNow, IdUsuario = this.IdUsuarioActual() };
+        _context.HistorialesMovimiento.Add(historial);
+        await _context.SaveChangesAsync();
+
+        origen.CantidadKilos -= dto.Kilos;
+        var destinoUb = await _context.UbicacionesProducto
+            .FirstOrDefaultAsync(u => u.IdExistencia == origen.IdExistencia && u.IdDireccion == destino.Id);
+        if (destinoUb != null) destinoUb.CantidadKilos += dto.Kilos;
+        else
+            _context.UbicacionesProducto.Add(new UbicacionProducto
+            {
+                IdExistencia = origen.IdExistencia, IdDireccion = destino.Id, CantidadKilos = dto.Kilos
+            });
+
+        _context.DetallesMovimiento.Add(new DetalleMovimiento
+        {
+            IdExistencia = origen.IdExistencia, IdHistorial = historial.Id, Kilos = dto.Kilos,
+            IdTipoMovimiento = tipoSalida.Id, IdDireccion = origen.IdDireccion
+        });
+        _context.DetallesMovimiento.Add(new DetalleMovimiento
+        {
+            IdExistencia = origen.IdExistencia, IdHistorial = historial.Id, Kilos = dto.Kilos,
+            IdTipoMovimiento = tipoEntrada.Id, IdDireccion = destino.Id
+        });
+        await _context.SaveChangesAsync();
+
+        var existencia = await _context.Existencias.AsNoTracking().FirstOrDefaultAsync(e => e.Id == origen.IdExistencia);
+        await _auditoria.RegistrarAsync("ubicacion_producto", origen.Id.ToString(), "MODIFICAR", null,
+            new
+            {
+                Traspaso = "Resguardo → Conpaq",
+                Detalles = new List<object>
+                {
+                    new
+                    {
+                        Producto = existencia?.CodigoProducto,
+                        Lote = existencia?.Lote,
+                        Bodega = await Empresa.Intranet.API.Servicios.AuditoriaDetalles.BodegaAsync(_context, destino.Id),
+                        Kilos = dto.Kilos
+                    }
+                },
+                Registro = historial.Id
+            },
+            this.IdUsuarioActual());
+        await tx.CommitAsync();
+        return Ok(new { registro = historial.Id });
+    }
+
+    // POST api/ubicacionproducto/5/ajuste — ajuste de inventario de un lote en una bodega (conteo físico, merma, producto
+    // dañado): deja los kilos en lo que se contó y registra la diferencia como movimiento "Ajuste positivo" o "Ajuste
+    // negativo" con su motivo, para que el historial y la auditoría expliquen por qué cambió el inventario.
+    [HttpPost("{id}/ajuste")]
+    public async Task<IActionResult> Ajustar(uint id, [FromBody] AjusteInventarioDto dto)
+    {
+        var rechazo = await ValidarEdicion(dto.KilosContados);
+        if (rechazo != null) return rechazo;
+        var motivo = (dto.Motivo ?? "").Trim();
+        if (motivo.Length == 0) return BadRequest(new { mensaje = "Escribe el motivo del ajuste" });
+
+        var ubicacion = await _context.UbicacionesProducto.FirstOrDefaultAsync(u => u.Id == id);
+        if (ubicacion == null) return NotFound();
+        var diferencia = dto.KilosContados - ubicacion.CantidadKilos;
+        if (diferencia == 0) return BadRequest(new { mensaje = "Los kilos contados son iguales a los registrados; no hay nada que ajustar" });
+
+        var antes = await SnapshotUbicacion(ubicacion);
+        await using var tx = await _context.Database.BeginTransactionAsync();
+        var tipo = await TipoMovimientoAsync(diferencia > 0 ? "Ajuste positivo" : "Ajuste negativo");
+        var historial = new HistorialMovimiento { FechaRegistro = DateTime.UtcNow, IdUsuario = this.IdUsuarioActual() };
+        _context.HistorialesMovimiento.Add(historial);
+        await _context.SaveChangesAsync();
+
+        ubicacion.CantidadKilos = dto.KilosContados;
+        _context.DetallesMovimiento.Add(new DetalleMovimiento
+        {
+            IdExistencia = ubicacion.IdExistencia, IdHistorial = historial.Id, Kilos = Math.Abs(diferencia),
+            IdTipoMovimiento = tipo.Id, IdDireccion = ubicacion.IdDireccion, IdDepartamento = ubicacion.IdDepartamento
+        });
+        await _context.SaveChangesAsync();
+
+        await _auditoria.RegistrarAsync("ubicacion_producto", id.ToString(), "MODIFICAR", antes,
+            new { Ajuste = tipo.Nombre, Diferencia = diferencia, KilosContados = dto.KilosContados, Motivo = motivo, Registro = historial.Id },
+            this.IdUsuarioActual());
+        await tx.CommitAsync();
+        return Ok(new { registro = historial.Id, diferencia });
+    }
+
     private async Task<TipoMovimiento> TipoMovimientoAsync(string nombre)
     {
         var tipo = await _context.TiposMovimiento.FirstOrDefaultAsync(t => t.Nombre == nombre);
@@ -394,7 +510,7 @@ public async Task<IActionResult> GetTodos(
         static bool EsEntrada(string nombre)
         {
             var n = nombre.ToLower();
-            return n.Contains("compra") || n.Contains("traspaso");
+            return n.Contains("compra") || n.Contains("traspaso") || n.Contains("ajuste positivo");
         }
 
         // Folio de la empresa (solo las entradas por compra lo tienen) y número de embarque (solo las
@@ -527,7 +643,8 @@ public async Task<IActionResult> GetTrazabilidad(uint idExistencia)
     decimal saldo = 0;
     var resultado = movimientos.Select(d => {
         bool esEntrada = d.TipoMovimiento.Nombre.ToLower().Contains("compra") ||
-                         d.TipoMovimiento.Nombre.ToLower().Contains("traspaso");
+                         d.TipoMovimiento.Nombre.ToLower().Contains("traspaso") ||
+                         d.TipoMovimiento.Nombre.ToLower().Contains("ajuste positivo");
         if (esEntrada) saldo += d.Kilos;
         else saldo -= d.Kilos;
 
@@ -559,6 +676,7 @@ public async Task<IActionResult> GetTrazabilidad(uint idExistencia)
 }
 }
 public record TraspasoResguardoDto(uint IdOrigen, uint IdDireccionDestino, decimal Kilos);
+public record AjusteInventarioDto(decimal KilosContados, string? Motivo);
 
 // Un renglón del historial de resguardo; InvFinal se completa al recorrer en orden cronológico.
 public record FilaResguardo(

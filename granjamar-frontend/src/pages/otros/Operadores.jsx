@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext'
 import PageHeader from '../../components/PageHeader'
 import Cargando from '../../components/Cargando'
 import Modal from '../../components/Modal'
+import ConfirmarBaja from '../../components/ConfirmarBaja'
 import AgregarBoton from '../../components/AgregarBoton'
 import { useToast } from '../../context/ToastContext'
 import { getEmpresas } from '../../api/destinos'
@@ -57,6 +58,9 @@ export default function Operadores() {
   const [marcas, setMarcas] = useState([])
   const [cajas, setCajas] = useState([])
   const [cargando, setCargando] = useState(true)
+  // Baja pendiente de confirmar: { titulo, texto, accion } — accion hace la llamada y devuelve el mensaje de éxito.
+  const [baja, setBaja] = useState(null)
+  const [dandoBaja, setDandoBaja] = useState(false)
   const [guardando, setGuardando] = useState(false)
 
   const [modalChofer, setModalChofer] = useState(false)
@@ -116,13 +120,19 @@ export default function Operadores() {
     }
   }
 
-  const borrarChofer = async (ch) => {
+  const borrarChofer = (ch) =>
+    setBaja({ titulo: 'Dar de baja operador', texto: `¿Dar de baja al operador ${ch.nombre}?`, accion: () => eliminarChofer(ch.id).then(() => 'Operador eliminado') })
+
+  const confirmarBaja = async () => {
+    setDandoBaja(true)
     try {
-      await eliminarChofer(ch.id)
-      toast.exito('Operador eliminado')
+      toast.exito(await baja.accion())
+      setBaja(null)
       cargar()
     } catch (e) {
-      toast.error(e.response?.data?.mensaje || 'No se pudo eliminar')
+      toast.error(e.response?.data?.mensaje || 'No se pudo dar de baja')
+    } finally {
+      setDandoBaja(false)
     }
   }
 
@@ -197,15 +207,8 @@ export default function Operadores() {
     }
   }
 
-  const borrarTracto = async (t) => {
-    try {
-      await eliminarTractocamion(t.id)
-      toast.exito('Tractocamión eliminado')
-      cargar()
-    } catch (e) {
-      toast.error(e.response?.data?.mensaje || 'No se pudo eliminar')
-    }
-  }
+  const borrarTracto = (t) =>
+    setBaja({ titulo: 'Dar de baja tractocamión', texto: `¿Dar de baja el tractocamión con placa ${t.placa || ''}?`, accion: () => eliminarTractocamion(t.id).then(() => 'Tractocamión eliminado') })
 
   // ── Cajas ─────────────────────────────────────────────────────
   const abrirCaja = (c) => {
@@ -239,15 +242,8 @@ export default function Operadores() {
     }
   }
 
-  const borrarCaja = async (c) => {
-    try {
-      await eliminarCaja(c.id)
-      toast.exito('Caja eliminada')
-      cargar()
-    } catch (e) {
-      toast.error(e.response?.data?.mensaje || 'No se pudo eliminar')
-    }
-  }
+  const borrarCaja = (c) =>
+    setBaja({ titulo: 'Dar de baja caja', texto: `¿Dar de baja la caja con placa ${c.cajaPlaca || ''}?`, accion: () => eliminarCaja(c.id).then(() => 'Caja eliminada') })
 
   const agregar = () => {
     if (tab === 'operadores') abrirChofer(null)
@@ -576,6 +572,15 @@ export default function Operadores() {
           </button>
         </div>
       </Modal>
+
+      <ConfirmarBaja
+        abierto={!!baja}
+        titulo={baja?.titulo}
+        texto={baja?.texto}
+        procesando={dandoBaja}
+        onCancelar={() => setBaja(null)}
+        onConfirmar={confirmarBaja}
+      />
     </Layout>
   )
 }

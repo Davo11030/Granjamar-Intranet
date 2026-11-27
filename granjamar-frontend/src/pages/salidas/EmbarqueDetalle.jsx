@@ -5,7 +5,7 @@ import PageHeader from '../../components/PageHeader'
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import Modal from '../../components/Modal'
-import { getEmbarque, getEmbarquesPorNumero, cambiarEstadoEmbarque, getRequisicion, getSolicitudDocumento, getCiegoDocumento, getRtDocumento, getCartaDocumento, guardarSellos } from '../../api/embarques'
+import { getEmbarque, getEmbarquesPorNumero, cambiarEstadoEmbarque, cancelarEmbarqueCompleto, getRequisicion, getSolicitudDocumento, getCiegoDocumento, getRtDocumento, getCartaDocumento, guardarSellos } from '../../api/embarques'
 import { getArchivoDocumento } from '../../api/documentos'
 import { descargarRequisicionPdf } from '../../utils/requisicionPdf'
 import { descargarSolicitudPdf } from '../../utils/solicitudPdf'
@@ -50,16 +50,33 @@ export default function EmbarqueDetalle() {
     }
   }, [embarque])
 
-  const marcarCompletado = async () => {
+  const [confirmarCancelar, setConfirmarCancelar] = useState(false)
+
+  // Completado bloquea los cambios (requisición, solicitud, RT y ciego); "Reabrir" lo regresa a En proceso.
+  const cambiarEstado = async (nuevo) => {
     setGuardando(true)
     try {
-      await cambiarEstadoEmbarque(id, { estado: 'Completado', idUsuario: usuario?.id })
-      toast.exito(hermanos.length > 1 ? `Embarque marcado como completado (sus ${hermanos.length} destinos)` : 'Embarque marcado como completado')
-      setEmbarque((prev) => ({ ...prev, estado: 'Completado' }))
+      await cambiarEstadoEmbarque(id, { estado: nuevo, idUsuario: usuario?.id })
+      const varios = hermanos.length > 1 ? ` (sus ${hermanos.length} destinos)` : ''
+      toast.exito(nuevo === 'Completado' ? `Embarque marcado como completado${varios}` : `Embarque reabierto${varios}`)
+      setEmbarque((prev) => ({ ...prev, estado: nuevo }))
     } catch (e) {
       toast.error(e.response?.data?.mensaje || 'No se pudo actualizar el estado')
     } finally {
       setGuardando(false)
+    }
+  }
+
+  const cancelarEmbarque = async () => {
+    setGuardando(true)
+    try {
+      await cancelarEmbarqueCompleto(id)
+      toast.exito(`Embarque #${embarque?.numero ?? id} cancelado; el producto regresó a su origen`)
+      navigate('/salidas/embarques')
+    } catch (e) {
+      toast.error(e.response?.data?.mensaje || 'No se pudo cancelar el embarque')
+      setGuardando(false)
+      setConfirmarCancelar(false)
     }
   }
 
@@ -176,8 +193,18 @@ export default function EmbarqueDetalle() {
           {estado || 'Cargando…'}
         </span>
         {estado && estado !== 'Completado' && puede('embarques', 'editar') && (
-          <button className="gm-pill" onClick={marcarCompletado} disabled={guardando}>
+          <button className="gm-pill" onClick={() => cambiarEstado('Completado')} disabled={guardando}>
             {guardando ? 'Guardando…' : 'Marcar como completado'}
+          </button>
+        )}
+        {estado === 'Completado' && puede('embarques', 'editar') && (
+          <button className="gm-pill" onClick={() => cambiarEstado('En proceso')} disabled={guardando}>
+            {guardando ? 'Guardando…' : 'Reabrir para modificar'}
+          </button>
+        )}
+        {estado && estado !== 'Completado' && puede('embarques', 'eliminar') && (
+          <button className="text-sm font-semibold text-cancelar underline" onClick={() => setConfirmarCancelar(true)} disabled={guardando}>
+            Cancelar embarque
           </button>
         )}
       </div>
@@ -306,6 +333,22 @@ export default function EmbarqueDetalle() {
           </button>
           <button className="gm-btn-guardar" disabled={generando} onClick={generarCarta}>
             Generar PDF
+          </button>
+        </div>
+      </Modal>
+
+      <Modal abierto={confirmarCancelar} onCerrar={() => setConfirmarCancelar(false)} ancho="max-w-md" titulo="Cancelar embarque">
+        <p className="text-sm text-gray-600">
+          Se cancela el embarque #{embarque?.numero ?? id}
+          {hermanos.length > 1 ? ` con sus ${hermanos.length} destinos` : ''}. El producto que ya se había apartado en la
+          Solicitud regresa a su origen y los pedidos de consignación que generó se anulan. Esto no se puede deshacer.
+        </p>
+        <div className="mt-8 flex justify-between">
+          <button className="gm-btn-guardar" onClick={() => setConfirmarCancelar(false)} disabled={guardando}>
+            No, regresar
+          </button>
+          <button className="gm-btn-cancelar" onClick={cancelarEmbarque} disabled={guardando}>
+            {guardando ? 'Cancelando…' : 'Sí, cancelar embarque'}
           </button>
         </div>
       </Modal>
