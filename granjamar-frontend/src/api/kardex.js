@@ -2,6 +2,8 @@ import api from './config'
 export const getKardex = () => api.get('/Productos')
 export const crearProducto = (datos) => api.post('/Productos', datos)
 export const actualizarProducto = (codigo, datos) => api.put(`/Productos/${codigo}`, datos)
+// Baja lógica: el producto deja de aparecer en el kardex (se reactiva en Administración → Dados de baja).
+export const darDeBajaProducto = (codigo) => api.delete(`/Productos/${encodeURIComponent(codigo)}`)
 export const getEspecies = () => api.get('/Especies')
 export const getMarcas = () => api.get('/Marcas')
 export const getTallas = () => api.get('/Tallas')

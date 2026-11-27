@@ -98,6 +98,7 @@ export default function Conpaq() {
       const lote = {
         id: d.id,
         lote: d.lote,
+        bodega: [d.empresa, d.direccion].filter(Boolean).join(' · '),
         cantidadKilos: Number(d.cantidadKilos || 0),
         tipoDocumento: d.tipoDocumento,
         numeroDocumento: d.numeroDocumento,
@@ -202,6 +203,7 @@ export default function Conpaq() {
             <thead>
               <tr>
                 <th>Lote</th>
+                <th>Bodega</th>
                 <th className="text-right">Kilos</th>
                 <th>Pedimento</th>
                 {puede('inventario', 'editar') && <th aria-hidden="true" />}
@@ -211,6 +213,7 @@ export default function Conpaq() {
               {lotesDe.lotes.map((l) => (
                 <tr key={l.id}>
                   <td className="text-sm">{l.lote || '—'}</td>
+                  <td className="text-sm">{l.bodega || '—'}</td>
                   <td className="text-right text-sm font-semibold">{kg(l.cantidadKilos)}</td>
                   <td className="text-sm">
                     {l.numeroDocumento ? `${l.tipoDocumento ? `${l.tipoDocumento} — ` : ''}${l.numeroDocumento}` : '—'}

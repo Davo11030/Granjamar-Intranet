@@ -38,6 +38,7 @@ const adminItems = [
   { label: 'Documentos', path: '/admin/documentos' },
   { label: 'Catálogos del kardex', path: '/admin/catalogos-kardex' },
   { label: 'Visitantes', path: '/admin/visitantes' },
+  { label: 'Dados de baja', path: '/admin/bajas' },
 ]
 
 export default function Sidebar({ abierto, onCerrar }) {

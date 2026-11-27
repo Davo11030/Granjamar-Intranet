@@ -40,6 +40,7 @@ const ClavesSat = lazy(() => import('./pages/otros/ClavesSat'))
 const Movimientos = lazy(() => import('./pages/admin/Movimientos'))
 const Usuarios = lazy(() => import('./pages/admin/Usuarios'))
 const Visitantes = lazy(() => import('./pages/otros/Visitantes'))
+const Bajas = lazy(() => import('./pages/admin/Bajas'))
 const Clientes = lazy(() => import('./pages/clientes/Clientes'))
 const Empresas = lazy(() => import('./pages/admin/Empresas'))
 const Documentos = lazy(() => import('./pages/admin/Documentos'))
@@ -92,6 +93,7 @@ export default function App() {
           <Route path="/admin/catalogos-kardex" element={<RutaAdmin><CatalogosKardex /></RutaAdmin>} />
           <Route path="/salidas/embarques/nuevo/requisicion" element={<ProtectedRoute permiso={['embarques','crear']}><Requisicion /></ProtectedRoute>} />
           <Route path="/admin/visitantes" element={<RutaAdmin><Visitantes /></RutaAdmin>} />
+          <Route path="/admin/bajas" element={<RutaAdmin><Bajas /></RutaAdmin>} />
           <Route path="/clientes" element={<ProtectedRoute permiso={['clientes','ver']}><Clientes /></ProtectedRoute>} />
           <Route path="/admin/empresas" element={<RutaAdmin><Empresas /></RutaAdmin>} />
           <Route path="/admin/documentos" element={<RutaAdmin><Documentos /></RutaAdmin>} />

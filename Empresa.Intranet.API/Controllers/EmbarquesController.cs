@@ -1018,7 +1018,7 @@ IF @r < 0 THROW 50000, 'No se pudo reservar el número de embarque, intenta de n
     // activo de otro año se salta, para que dos requisiciones distintas nunca compartan número.
     private async Task<string> SiguienteNumeroAsync()
     {
-        var inicioAnio = new DateTime(DateTime.UtcNow.Year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var inicioAnio = ZonaHoraria.InicioDelDiaUtc(new DateTime(ZonaHoraria.HoyLocal().Year, 1, 1));
         var delAnio = await _context.Embarques
             .Where(e => e.Numero != null && e.HistorialMovimiento.FechaRegistro >= inicioAnio)
             .Select(e => e.Numero!).ToListAsync();

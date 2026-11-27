@@ -10,6 +10,7 @@ import { getEmbarque, getEmbarquesPorNumero, guardarRt } from '../../api/embarqu
 import { getProductos, getPedimentosPorProducto } from '../../api/inventario'
 import { abrirArchivoDocumento } from '../../api/documentos'
 import { avisar } from '../../utils/avisoCarga'
+import { formatearFecha } from '../../utils/fecha'
 
 const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
@@ -590,7 +591,7 @@ export default function RT() {
                                   const restan = calculo.poolDe(f.codigo, d.idDocumento)
                                   return (
                                     <option key={d.idDocumento} value={d.idDocumento}>
-                                      {d.fechaDocumento ? `${new Date(d.fechaDocumento).toLocaleDateString('es-MX')} · ` : ''}
+                                      {d.fechaDocumento ? `${formatearFecha(d.fechaDocumento)} · ` : ''}
                                       {d.tipoDocumento || 'Pedimento'} — {d.numeroDocumento} (total {n3(d.kilosOriginales)} kg ·{' '}
                                       {restan > EPS ? `restan ${n3(restan)} kg` : 'sin kilos restantes'})
                                     </option>

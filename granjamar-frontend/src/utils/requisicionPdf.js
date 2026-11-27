@@ -45,7 +45,7 @@ const cargarImagen = (src) =>
     img.src = src
   })
 
-export const nombreArchivoRequisicion = (numero, destino) => `Requisision ${numero ?? ''}${destino ? ` - ${destino}` : ''}`.trim()
+export const nombreArchivoRequisicion = (numero, destino) => `Requisición ${numero ?? ''}${destino ? ` - ${destino}` : ''}`.trim()
 
 // datos = respuesta de GET /Embarques/{id}/requisicion. Devuelve el nombre del archivo descargado.
 export async function descargarRequisicionPdf(datos, destino) {

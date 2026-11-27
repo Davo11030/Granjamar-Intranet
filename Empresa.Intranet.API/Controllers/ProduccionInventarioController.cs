@@ -46,7 +46,7 @@ public class ProduccionInventarioController : ControllerBase
     public async Task<IActionResult> Get([FromQuery] string? fecha)
     {
         DateTime dia;
-        if (string.IsNullOrWhiteSpace(fecha)) dia = DateTime.UtcNow.Date;
+        if (string.IsNullOrWhiteSpace(fecha)) dia = ZonaHoraria.HoyLocal();
         else if (!ProduccionService.TryDia(fecha, out dia)) return BadRequest(new { mensaje = "Fecha inválida" });
 
         var grupos = await _prod.InicialesPorOrigenAsync(dia);

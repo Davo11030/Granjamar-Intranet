@@ -18,7 +18,7 @@ import { avisar } from '../../utils/avisoCarga'
 // el número de embarque se comparte entre varios destinos, sus botones de EXCEL/PDF se duplican
 // (uno por destino) dentro del mismo recuadro — el recuadro en sí no se separa.
 const DOCS = [
-  { nombre: 'Requisision', ruta: 'requisicion', flag: 'requisicionCompleta', dividir: true },
+  { nombre: 'Requisición', ruta: 'requisicion', flag: 'requisicionCompleta', dividir: true },
   { nombre: 'Solicitud', ruta: 'solicitud', flag: 'solicitudCompleta', dividir: false },
   { nombre: 'RT', ruta: 'rt', flag: 'rtCompleta', dividir: true },
   { nombre: 'Ciego de carga', ruta: 'ciego', flag: 'ciegoCompleto', dividir: false },

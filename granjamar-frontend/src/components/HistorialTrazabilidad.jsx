@@ -8,6 +8,7 @@ import Paginacion from './Paginacion'
 import usePaginacion from '../hooks/usePaginacion'
 import { getTrazabilidad } from '../api/inventario'
 import { avisar } from '../utils/avisoCarga'
+import { formatearFecha } from '../utils/fecha'
 
 const num = (n) =>
   Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -83,7 +84,7 @@ export default function HistorialTrazabilidad() {
                   <tr key={mov.id}>
                     <td>
                       <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded text-sm whitespace-nowrap">
-                        {new Date(mov.fecha).toLocaleDateString('es-MX')}
+                        {formatearFecha(mov.fecha)}
                       </span>
                     </td>
                     <td className="text-sm">{mov.empresaTransporte || '—'}</td>

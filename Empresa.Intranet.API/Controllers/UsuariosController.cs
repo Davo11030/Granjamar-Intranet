@@ -323,7 +323,7 @@ public class UsuariosController : ControllerBase
             {
                 mensaje = existente.Activo
                     ? "Ya existe un usuario con ese nombre"
-                    : "Ya existe un usuario dado de baja con ese nombre; usa otro nombre"
+                    : "Ya existe un usuario dado de baja con ese nombre; reactívalo en Administración → Dados de baja o usa otro nombre"
             });
 
         var correo = string.IsNullOrWhiteSpace(dto.Correo) ? null : dto.Correo.Trim();

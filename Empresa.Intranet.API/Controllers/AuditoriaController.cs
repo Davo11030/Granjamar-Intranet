@@ -1,3 +1,4 @@
+using Empresa.Intranet.API.Servicios;
 using Empresa.Intranet.API.Filtros;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -34,7 +35,9 @@ public class AuditoriaController : ControllerBase
         // Tope de renglones: la tabla crece con cada guardado y traerla completa hace lenta la pantalla.
         // Se regresan los más recientes; con fechas o filtros se llega a los anteriores.
         var tope = Math.Clamp(limite ?? LimitePorDefecto, 1, LimiteMaximo);
-        var hastaFin = hasta?.Date.AddDays(1).AddTicks(-1);
+        // Los días son de Ensenada; la base guarda UTC (ver ZonaHoraria).
+        DateTime? desdeUtc = desde == null ? null : ZonaHoraria.InicioDelDiaUtc(desde.Value);
+        DateTime? hastaUtc = hasta == null ? null : ZonaHoraria.InicioDelDiaUtc(hasta.Value.Date.AddDays(1));
 
         var lista = await _context.Auditorias
             .Include(a => a.Usuario)
@@ -42,8 +45,8 @@ public class AuditoriaController : ControllerBase
                      && (registro == null || a.IdRegistro == registro)
                      && (accion == null || a.Accion == accion)
                      && (usuario == null || a.Usuario.Nombre == usuario)
-                     && (desde == null || a.Fecha >= desde)
-                     && (hastaFin == null || a.Fecha <= hastaFin))
+                     && (desdeUtc == null || a.Fecha >= desdeUtc)
+                     && (hastaUtc == null || a.Fecha < hastaUtc))
             .OrderByDescending(a => a.Fecha)
             .Take(tope)
             .Select(a => new

@@ -20,10 +20,12 @@ public class VentasController : ControllerBase
     private readonly AuditoriaService _auditoria;
     private readonly PermisoService _permisoService;
     private readonly PedidosConsignacionService _pedidos;
+    private readonly IConfiguration _config;
     public VentasController(AppDbContext context, AuditoriaService auditoria, PermisoService permisoService,
-        PedidosConsignacionService pedidos)
+        PedidosConsignacionService pedidos, IConfiguration config)
     {
         _pedidos = pedidos;
+        _config = config;
         _context = context;
         _auditoria = auditoria;
         _permisoService = permisoService;
@@ -64,7 +66,9 @@ public class VentasController : ControllerBase
     public async Task<IActionResult> GetTodos(
         [FromQuery] DateTime? desde, [FromQuery] DateTime? hasta, [FromQuery] uint? idUsuario)
     {
-        var hastaFin = hasta?.Date.AddDays(1).AddTicks(-1);
+        // Los días son de Ensenada; la base guarda UTC (ver ZonaHoraria).
+        DateTime? desdeUtc = desde == null ? null : ZonaHoraria.InicioDelDiaUtc(desde.Value);
+        DateTime? hastaUtc = hasta == null ? null : ZonaHoraria.InicioDelDiaUtc(hasta.Value.Date.AddDays(1));
         // Con solo el permiso de corte de caja (sin "ver ventas") únicamente se ve la propia caja.
         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "ventas", "ver"))
             idUsuario = this.IdUsuarioActual();
@@ -76,8 +80,8 @@ public class VentasController : ControllerBase
             .Include(v => v.EstadoRecoleccion)
             .Include(v => v.HistorialMovimiento).ThenInclude(h => h!.Usuario)
             .Where(v => v.Activo
-                     && (desde == null || v.HistorialMovimiento!.FechaRegistro >= desde)
-                     && (hastaFin == null || v.HistorialMovimiento!.FechaRegistro <= hastaFin)
+                     && (desdeUtc == null || v.HistorialMovimiento!.FechaRegistro >= desdeUtc)
+                     && (hastaUtc == null || v.HistorialMovimiento!.FechaRegistro < hastaUtc)
                      && (idUsuario == null || v.HistorialMovimiento!.IdUsuario == idUsuario))
             .Select(v => new VentaDto
             {
@@ -161,11 +165,11 @@ public class VentasController : ControllerBase
         if (dto.Descuento is < 0 or > 100) return "El descuento debe estar entre 0 y 100 %";
         if (dto.Detalles.Any(d => d.PrecioKilo < 0)) return "El precio por kilo no puede ser negativo";
         if (dto.Detalles.Any(d => d.Kilos <= 0)) return "Los kilos de cada producto deben ser mayores a 0";
+        if (dto.Detalles.Any(d => d.PrecioKilo == null)) return "Cada producto de la venta debe llevar su precio por kilo";
 
         // El total lo calcula la pantalla, pero el servidor lo comprueba con los renglones: la suma de kilos × precio
         // (el precio ya trae el descuento del renglón) menos el descuento general. Se tolera una diferencia mínima por
         // redondeo de centavos; si no cuadra, la venta se rechaza en lugar de guardar un total que no corresponde.
-        if (dto.Detalles.All(d => d.PrecioKilo != null))
         {
             var subtotal = dto.Detalles.Sum(d => d.Kilos * d.PrecioKilo!.Value);
             var esperado = Math.Round(subtotal * (1 - (dto.Descuento ?? 0) / 100m), 2);
@@ -173,6 +177,29 @@ public class VentasController : ControllerBase
             var tolerancia = Math.Max(1m, dto.Detalles.Sum(d => d.Kilos) * 0.005m + 0.01m);
             if (Math.Abs(esperado - dto.Total) > tolerancia)
                 return $"El total ({dto.Total:N2}) no coincide con los productos ({esperado:N2}). Revisa la venta y vuelve a intentarlo.";
+        }
+        return null;
+    }
+
+    // El precio lo manda la pantalla, así que aquí se compara con el del kardex: el precio final por kilo (con el descuento
+    // del renglón y el general) no puede quedar abajo del precio del kardex menos el descuento máximo permitido
+    // (Ventas:DescuentoMaximo en appsettings, 50 % si no se configura). El administrador no tiene tope.
+    private async Task<string?> ValidarPreciosAsync(CrearVentaDto dto)
+    {
+        if (this.EsAdminActual()) return null;
+        var tope = Math.Clamp(_config.GetValue<decimal?>("Ventas:DescuentoMaximo") ?? 50m, 0m, 100m);
+        var ids = dto.Detalles.Select(d => d.IdExistencia).Distinct().ToList();
+        var precios = await _context.Existencias.Where(e => ids.Contains(e.Id))
+            .Select(e => new { e.Id, e.CodigoProducto, e.Producto.PrecioKilo })
+            .ToDictionaryAsync(e => e.Id);
+        var factorGeneral = 1 - (dto.Descuento ?? 0) / 100m;
+        foreach (var d in dto.Detalles)
+        {
+            if (!precios.TryGetValue(d.IdExistencia, out var p) || p.PrecioKilo <= 0) continue;
+            var minimo = Math.Round(p.PrecioKilo * (1 - tope / 100m), 2);
+            var final = Math.Round(d.PrecioKilo!.Value * factorGeneral, 2);
+            if (final + 0.01m < minimo)
+                return $"El precio de {p.CodigoProducto} (${final:N2}/kg con descuentos) es menor al permitido (${minimo:N2}/kg, {tope:0.#} % de descuento máximo). Pide a un administrador que registre la venta.";
         }
         return null;
     }
@@ -192,7 +219,7 @@ public class VentasController : ControllerBase
     {
         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "ventas", "crear"))
             return this.SinPermiso();
-        var errorDetalles = ValidarDetallesVenta(dto);
+        var errorDetalles = ValidarDetallesVenta(dto) ?? await ValidarPreciosAsync(dto);
         if (errorDetalles != null) return BadRequest(new { mensaje = errorDetalles });
         var tipoMovimiento = await _context.TiposMovimiento
             .FirstOrDefaultAsync(t => t.Nombre.ToLower().Contains("venta"));
@@ -284,7 +311,7 @@ public class VentasController : ControllerBase
     {
         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "ventas", "editar"))
             return this.SinPermiso();
-        var errorDetalles = ValidarDetallesVenta(dto);
+        var errorDetalles = ValidarDetallesVenta(dto) ?? await ValidarPreciosAsync(dto);
         if (errorDetalles != null) return BadRequest(new { mensaje = errorDetalles });
         var venta = await _context.Ventas
             .Include(v => v.HistorialMovimiento)

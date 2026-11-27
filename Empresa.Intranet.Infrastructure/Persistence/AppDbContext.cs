@@ -454,5 +454,24 @@ modelBuilder.Entity<UsuarioPermiso>()
             .HasOne(s => s.Usuario)
             .WithMany()
             .HasForeignKey(s => s.IdUsuario);
+
+        // Las fechas y horas en que pasó algo se guardan en UTC (DateTime.UtcNow). Al leerlas se marcan como UTC para que
+        // la API las mande con la "Z" y el navegador las muestre en la hora de Ensenada; sin la marca, el navegador las
+        // tomaba como hora local y salían 7 u 8 horas adelantadas (y con la fecha de mañana después de las 4 p.m.).
+        // Las fechas de calendario (caducidad, día de producción) no se tocan: no tienen hora y no deben moverse de día.
+        var utc = new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTime, DateTime>(
+            v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+        var utcOpcional = new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTime?, DateTime?>(
+            v => v, v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v);
+        modelBuilder.Entity<HistorialMovimiento>().Property(x => x.FechaRegistro).HasConversion(utc);
+        modelBuilder.Entity<Auditoria>().Property(x => x.Fecha).HasConversion(utc);
+        modelBuilder.Entity<Documento>().Property(x => x.Fecha).HasConversion(utc);
+        modelBuilder.Entity<Documento>().Property(x => x.FechaArchivo).HasConversion(utcOpcional);
+        modelBuilder.Entity<PedidoConsignacion>().Property(x => x.Fecha).HasConversion(utc);
+        modelBuilder.Entity<PedidoConsignacionOrden>().Property(x => x.Fecha).HasConversion(utc);
+        modelBuilder.Entity<SolicitudProduccion>().Property(x => x.Fecha).HasConversion(utc);
+        modelBuilder.Entity<SolicitudContrasena>().Property(x => x.FechaSolicitud).HasConversion(utc);
+        modelBuilder.Entity<SolicitudContrasena>().Property(x => x.FechaResolucion).HasConversion(utcOpcional);
+        modelBuilder.Entity<Visitante>().Property(x => x.Fecha).HasConversion(utcOpcional);
     }
 }

@@ -32,6 +32,8 @@ public class UbicacionProductoController : ControllerBase
             return this.SinPermiso();
         if (cantidadKilos < 0)
             return BadRequest(new { mensaje = "Los kilos no pueden ser negativos" });
+        if (cantidadKilos > 10_000_000m)
+            return BadRequest(new { mensaje = "Los kilos no pueden pasar de 10,000,000" });
         return null;
     }
 
@@ -85,6 +87,8 @@ public async Task<IActionResult> GetTodos(
         u.IdExistencia,
         Lote = u.Existencia.Lote,
         CodigoProducto = u.Existencia.CodigoProducto,
+        // Para que la venta tome primero el lote que caduca antes (FEFO).
+        Caducidad = u.Existencia.Caducidad,
         u.IdDireccion,
         Direccion = u.Direccion.DireccionTexto,
         Empresa = u.Direccion.Empresa != null

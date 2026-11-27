@@ -8,12 +8,14 @@ import Paginacion from '../../components/Paginacion'
 import Cargando from '../../components/Cargando'
 import Modal from '../../components/Modal'
 import AgregarBoton from '../../components/AgregarBoton'
+import ConfirmarBaja from '../../components/ConfirmarBaja'
 import { useToast } from '../../context/ToastContext'
 import usePaginacion from '../../hooks/usePaginacion'
 import {
   getKardex,
   crearProducto,
   actualizarProducto,
+  darDeBajaProducto,
   getEspecies,
   getMarcas,
   getTallas,
@@ -37,6 +39,22 @@ export default function Kardex() {
   const [guardando, setGuardando] = useState(false)
   const [form, setForm] = useState({ ...FORM })
   const [editando, setEditando] = useState(null) // código del producto que se edita; null = alta nueva
+  const [baja, setBaja] = useState(null) // producto que se va a dar de baja
+  const [dandoDeBaja, setDandoDeBaja] = useState(false)
+
+  const confirmarBaja = async () => {
+    setDandoDeBaja(true)
+    try {
+      await darDeBajaProducto(baja.codigo)
+      toast.exito(`${baja.codigo} dado de baja`)
+      setBaja(null)
+      cargar()
+    } catch (e) {
+      toast.error(e.response?.data?.mensaje || 'No se pudo dar de baja el producto')
+    } finally {
+      setDandoDeBaja(false)
+    }
+  }
 
   const cargar = () => {
     Promise.all([getKardex(), getEspecies(), getMarcas(), getTallas(), getPesosCaja(), getPresentaciones()])
@@ -171,6 +189,11 @@ export default function Kardex() {
                             Editar
                           </button>
                         )}
+                        {puede('productos', 'eliminar') && (
+                          <button className="gm-pill ml-2" onClick={() => setBaja(item)}>
+                            Dar de baja
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -286,6 +309,15 @@ export default function Kardex() {
           </button>
         </div>
       </Modal>
+
+      <ConfirmarBaja
+        abierto={!!baja}
+        titulo="Dar de baja producto"
+        texto={baja ? `${baja.codigo} dejará de aparecer en el kardex y en los formularios. No se permite si todavía tiene kilos en inventario.` : ''}
+        procesando={dandoDeBaja}
+        onCancelar={() => setBaja(null)}
+        onConfirmar={confirmarBaja}
+      />
     </Layout>
   )
 }

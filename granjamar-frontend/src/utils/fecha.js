@@ -43,3 +43,8 @@ export const fechaHoy = () => {
     day: '2-digit'
   }).split('/').reverse().join('-')
 }
+// El día (AAAA-MM-DD) en Ensenada de una fecha con hora que manda la API en UTC; sirve para comparar con un <input type="date">.
+export const diaLocal = (fecha) => {
+  if (!fecha) return ''
+  return new Date(fecha).toLocaleDateString('en-CA', { timeZone: ZONA })
+}

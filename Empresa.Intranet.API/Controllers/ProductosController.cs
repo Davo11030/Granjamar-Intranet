@@ -58,8 +58,11 @@ public class ProductosController : ControllerBase
     }
 
     [HttpGet]
+    // Solo los productos activos: los dados de baja ya no aparecen en el kardex ni en los formularios
+    // (se reactivan desde Administración → Dados de baja).
     public async Task<IActionResult> GetTodos() =>
         Ok(await _context.Productos
+            .Where(p => p.Activo)
             .Include(p => p.Especie).ThenInclude(e => e.ClaveSat)
             .Include(p => p.Talla)
             .Include(p => p.Marca)
@@ -123,8 +126,11 @@ public class ProductosController : ControllerBase
             return this.SinPermiso();
         var errorDatos = await ValidarDatosAsync(dto);
         if (errorDatos != null) return BadRequest(new { mensaje = errorDatos });
-        var existe = await _context.Productos.AnyAsync(p => p.Codigo == dto.Codigo);
-        if (existe) return BadRequest(new { mensaje = "Ya existe un producto con ese código" });
+        var existente = await _context.Productos.FirstOrDefaultAsync(p => p.Codigo == dto.Codigo);
+        if (existente != null)
+            return BadRequest(new { mensaje = existente.Activo
+                ? "Ya existe un producto con ese código"
+                : "Ese código es de un producto dado de baja; reactívalo en Administración → Dados de baja" });
 
         var producto = new Producto
         {
@@ -203,8 +209,17 @@ public class ProductosController : ControllerBase
             .FirstOrDefaultAsync(p => p.Codigo == codigo);
         if (producto == null) return NotFound();
 
+        if (!producto.Activo) return NotFound();
+        // Baja lógica: el producto tiene lotes, ventas y embarques que lo nombran, así que no se borra; deja de
+        // aparecer en el kardex y en los formularios. Si todavía tiene kilos en inventario no se permite.
+        var kilos = await _context.UbicacionesProducto
+            .Where(u => u.Existencia.CodigoProducto == codigo && u.CantidadKilos > 0)
+            .SumAsync(u => (decimal?)u.CantidadKilos) ?? 0m;
+        if (kilos > 0)
+            return BadRequest(new { mensaje = $"No se puede dar de baja: todavía hay {kilos:N2} kg de {codigo} en inventario" });
+
         var antes = await Instantanea(producto);
-        _context.Productos.Remove(producto);
+        producto.Activo = false;
         await _context.SaveChangesAsync();
 
         await _auditoria.RegistrarAsync("productos", codigo, "ELIMINAR", antes, null,

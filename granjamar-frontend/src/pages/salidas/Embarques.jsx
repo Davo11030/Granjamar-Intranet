@@ -12,6 +12,7 @@ import { getEmbarques } from '../../api/embarques'
 import { getDirecciones } from '../../api/destinos'
 import { getClientes } from '../../api/clientes'
 import { avisar } from '../../utils/avisoCarga'
+import { diaLocal } from '../../utils/fecha'
 
 export default function Embarques() {
   const [errorCarga, setErrorCarga] = useState(false)
@@ -39,7 +40,7 @@ export default function Embarques() {
     () =>
       datos.filter((d) => {
         if (filtroDestino && (d.idCliente ? `c:${d.idCliente}` : `d:${d.idDireccion}`) !== filtroDestino) return false
-        const fecha = d.fechaRegistro ? d.fechaRegistro.slice(0, 10) : ''
+        const fecha = diaLocal(d.fechaRegistro)
         if (desde && fecha < desde) return false
         if (hasta && fecha > hasta) return false
         return true
@@ -69,7 +70,7 @@ export default function Embarques() {
     return grupos.map((g) => ({
       id: g[0].id,
       numero: g[0].numero ?? g[0].id,
-      anio: g[0].fechaRegistro ? new Date(g[0].fechaRegistro).getFullYear() : null,
+      anio: g[0].fechaRegistro ? Number(diaLocal(g[0].fechaRegistro).slice(0, 4)) : null,
       estado: g.every((x) => x.estado === 'Completado') ? 'Completado' : 'En proceso',
       activo: g.some((x) => x.activo !== false),
     }))

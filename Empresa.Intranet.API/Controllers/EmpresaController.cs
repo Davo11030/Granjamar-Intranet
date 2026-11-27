@@ -52,6 +52,8 @@ public async Task<IActionResult> GetTodos() =>
     {
         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "empresas", "crear"))
             return this.SinPermiso();
+        var nombre = (dto.Nombre ?? "").Trim();
+        if (nombre.Length == 0) return BadRequest(new { mensaje = "El nombre de la empresa es obligatorio" });
         var errorDirecciones = await ValidarDireccionesAsync(null, dto.Direcciones);
         if (errorDirecciones != null) return errorDirecciones;
 
@@ -59,7 +61,7 @@ public async Task<IActionResult> GetTodos() =>
         await using var tx = await _context.Database.BeginTransactionAsync();
         var item = new Domain.Entities.Empresa
         {
-            Nombre = dto.Nombre,
+            Nombre = nombre,
             Rfc = dto.Rfc,
             UrlLogo = dto.UrlLogo,
             Tipo = dto.Tipo
@@ -90,13 +92,15 @@ public async Task<IActionResult> GetTodos() =>
         var item = await _context.Empresas
             .FirstOrDefaultAsync(e => e.Id == id && e.Activo);
         if (item == null) return NotFound();
+        var nombre = (dto.Nombre ?? "").Trim();
+        if (nombre.Length == 0) return BadRequest(new { mensaje = "El nombre de la empresa es obligatorio" });
         var errorDirecciones = await ValidarDireccionesAsync(id, dto.Direcciones);
         if (errorDirecciones != null) return errorDirecciones;
 
         await using var tx = await _context.Database.BeginTransactionAsync();
         var datosAnteriores = new { item.Nombre, item.Rfc, item.UrlLogo };
 
-        item.Nombre = dto.Nombre;
+        item.Nombre = nombre;
         item.Rfc = dto.Rfc;
         item.UrlLogo = dto.UrlLogo;
         item.Tipo = dto.Tipo;

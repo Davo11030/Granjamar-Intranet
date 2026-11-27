@@ -125,9 +125,12 @@ public class CatalogosTransporteController : ControllerBase
     [HttpPost("cajas-tractocamion")]
     public async Task<IActionResult> CrearCaja([FromBody] CrearCajaTractocamionDto dto)
     {
+        var placa = string.IsNullOrWhiteSpace(dto.CajaPlaca) ? null : dto.CajaPlaca.Trim();
+        if (placa != null && await _context.CajasTractocamion.AnyAsync(c => c.Activo && c.CajaPlaca == placa))
+            return BadRequest(new { mensaje = $"Ya hay una caja activa con la placa {placa}" });
         var item = new CajaTractocamion
         {
-            CajaPlaca = dto.CajaPlaca,
+            CajaPlaca = placa,
             CajaTamano = dto.CajaTamano,
             CajaCapacidad = dto.CajaCapacidad,
             IdEmpresa = dto.IdEmpresa
@@ -147,11 +150,14 @@ public class CatalogosTransporteController : ControllerBase
     {
         var item = await _context.CajasTractocamion.FirstOrDefaultAsync(c => c.Id == id && c.Activo);
         if (item == null) return NotFound();
+        var placa = string.IsNullOrWhiteSpace(dto.CajaPlaca) ? null : dto.CajaPlaca.Trim();
+        if (placa != null && await _context.CajasTractocamion.AnyAsync(c => c.Activo && c.Id != id && c.CajaPlaca == placa))
+            return BadRequest(new { mensaje = $"Ya hay una caja activa con la placa {placa}" });
 
         var empresaAntes = item.IdEmpresa != null ? await _context.Empresas.FindAsync(item.IdEmpresa) : null;
         var antes = new { item.CajaPlaca, item.CajaTamano, item.CajaCapacidad, Empresa = empresaAntes?.Nombre };
 
-        item.CajaPlaca = dto.CajaPlaca;
+        item.CajaPlaca = placa;
         item.CajaTamano = dto.CajaTamano;
         item.CajaCapacidad = dto.CajaCapacidad;
         item.IdEmpresa = dto.IdEmpresa;
@@ -206,13 +212,16 @@ public class CatalogosTransporteController : ControllerBase
     [HttpPost("tractocamiones")]
     public async Task<IActionResult> CrearTractocamion([FromBody] CrearTractocamionDto dto)
     {
+        var placa = string.IsNullOrWhiteSpace(dto.Placa) ? null : dto.Placa.Trim();
+        if (placa != null && await _context.Tractocamiones.AnyAsync(t => t.Activo && t.Placa == placa))
+            return BadRequest(new { mensaje = $"Ya hay un tractocamión activo con la placa {placa}" });
         var item = new Tractocamion
         {
             Modelo = dto.Modelo,
             Color = dto.Color,
             IdMarca = dto.IdMarca,
             IdEmpresa = dto.IdEmpresa,
-            Placa = dto.Placa
+            Placa = placa
         };
         _context.Tractocamiones.Add(item);
         await _context.SaveChangesAsync();
@@ -231,6 +240,9 @@ public class CatalogosTransporteController : ControllerBase
     {
         var item = await _context.Tractocamiones.FirstOrDefaultAsync(t => t.Id == id && t.Activo);
         if (item == null) return NotFound();
+        var placa = string.IsNullOrWhiteSpace(dto.Placa) ? null : dto.Placa.Trim();
+        if (placa != null && await _context.Tractocamiones.AnyAsync(t => t.Activo && t.Id != id && t.Placa == placa))
+            return BadRequest(new { mensaje = $"Ya hay un tractocamión activo con la placa {placa}" });
 
         var marcaAntes = await _context.MarcasTractocamion.FindAsync(item.IdMarca);
         var empresaAntes = item.IdEmpresa != null ? await _context.Empresas.FindAsync(item.IdEmpresa) : null;
@@ -240,7 +252,7 @@ public class CatalogosTransporteController : ControllerBase
         item.Color = dto.Color;
         item.IdMarca = dto.IdMarca;
         item.IdEmpresa = dto.IdEmpresa;
-        item.Placa = dto.Placa;
+        item.Placa = placa;
         await _context.SaveChangesAsync();
 
         var marcaDespues = await _context.MarcasTractocamion.FindAsync(item.IdMarca);

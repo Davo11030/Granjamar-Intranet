@@ -7,6 +7,7 @@ import Paginacion from '../../components/Paginacion'
 import { Flecha } from '../../components/HistorialTrazabilidad'
 import { getHistorialResguardo } from '../../api/inventario'
 import { avisar } from '../../utils/avisoCarga'
+import { formatearFecha } from '../../utils/fecha'
 const num = (n) =>  Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 // Historial de UN producto dentro de una empresa de resguardo: todos sus lotes en una sola tabla,
@@ -82,7 +83,7 @@ export default function ResguardoHistorial() {
                   <tr key={m.id}>
                     <td>
                       <span className="whitespace-nowrap rounded bg-gray-100 px-2 py-1 text-sm text-gray-600">
-                        {m.fecha ? new Date(m.fecha).toLocaleDateString('es-MX') : '—'}
+                        {formatearFecha(m.fecha)}
                       </span>
                     </td>
                     <td className="text-sm">{m.empresaTransporte || '—'}</td>

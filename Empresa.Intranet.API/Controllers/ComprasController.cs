@@ -158,13 +158,34 @@ public class ComprasController : ControllerBase
 
     // Una entrada nunca puede traer kilos <= 0 (un renglón negativo restaría inventario) ni quedar
     // sin renglones ni sin lote.
+    private const decimal KilosMaximosPorRenglon = 10_000_000m;
+
     private static string? ValidarDetallesCompra(CrearCompraDto dto)
     {
         if (dto.Detalles.Count == 0) return "Agrega al menos un producto";
         foreach (var d in dto.Detalles)
         {
             if (d.Kilos <= 0) return "Los kilos de cada producto deben ser mayores a 0";
+            if (d.Kilos > KilosMaximosPorRenglon) return $"Los kilos de un renglón no pueden pasar de {KilosMaximosPorRenglon:N0}";
+            if (d.Costo < 0) return "El costo no puede ser negativo";
             if (string.IsNullOrWhiteSpace(d.Lote)) return "Cada producto necesita su lote";
+        }
+        return null;
+    }
+
+    // La bodega de cada renglón debe existir, estar activa y no ser de una empresa de resguardo: al resguardo el producto
+    // llega por traspaso desde Conpaq (Inventario → resguardo), no como entrada.
+    private async Task<string?> ValidarBodegasAsync(CrearCompraDto dto)
+    {
+        var ids = dto.Detalles.Select(d => d.IdDireccion).Distinct().ToList();
+        var bodegas = await _context.Direcciones.Include(d => d.Empresa)
+            .Where(d => ids.Contains(d.Id)).ToListAsync();
+        foreach (var id in ids)
+        {
+            var b = bodegas.FirstOrDefault(x => x.Id == id);
+            if (b == null || !b.Activo) return "Una de las bodegas de destino no existe o está dada de baja";
+            if (string.Equals(b.Empresa?.Tipo, "resguardo", StringComparison.OrdinalIgnoreCase))
+                return $"{b.DireccionTexto} es de {b.Empresa!.Nombre} (resguardo): el producto se manda ahí con el traspaso desde Conpaq";
         }
         return null;
     }
@@ -234,7 +255,7 @@ public class ComprasController : ControllerBase
     {
         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "compras", "crear"))
             return this.SinPermiso();
-        var errorDetalles = ValidarDetallesCompra(dto);
+        var errorDetalles = ValidarDetallesCompra(dto) ?? await ValidarBodegasAsync(dto);
         if (errorDetalles != null) return BadRequest(new { mensaje = errorDetalles });
         var errorArchivos = await ValidarArchivosDocumentosAsync(dto);
         if (errorArchivos != null) return BadRequest(new { mensaje = errorArchivos });
@@ -380,13 +401,19 @@ public class ComprasController : ControllerBase
             .OrderBy(a => a.Fecha)
             .ToListAsync();
 
+        // Editar una entrada también deja su estado en la auditoría; solo cuenta como paso del historial cuando el estado
+        // cambió (si no, "Completado" salía repetido después de cada edición).
         var historial = new List<object>();
+        string? ultimoEstado = null;
         foreach (var a in auditorias)
         {
             using var doc = JsonDocument.Parse(a.DatosNuevos!);
             if (doc.RootElement.TryGetProperty("Estado", out var estadoProp) && estadoProp.ValueKind == JsonValueKind.String)
             {
-                historial.Add(new { Estado = estadoProp.GetString(), a.Fecha, Usuario = a.Usuario.Nombre });
+                var estado = estadoProp.GetString();
+                if (estado == ultimoEstado) continue;
+                ultimoEstado = estado;
+                historial.Add(new { Estado = estado, a.Fecha, Usuario = a.Usuario.Nombre });
             }
         }
 
@@ -414,7 +441,7 @@ public class ComprasController : ControllerBase
     {
         if (!await _permisoService.TienePermisoAsync(this.IdUsuarioActual(), "compras", "editar"))
             return this.SinPermiso();
-        var errorDetalles = ValidarDetallesCompra(dto);
+        var errorDetalles = ValidarDetallesCompra(dto) ?? await ValidarBodegasAsync(dto);
         if (errorDetalles != null) return BadRequest(new { mensaje = errorDetalles });
         var errorArchivos = await ValidarArchivosDocumentosAsync(dto);
         if (errorArchivos != null) return BadRequest(new { mensaje = errorArchivos });
