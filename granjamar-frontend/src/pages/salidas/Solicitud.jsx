@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import { getEmbarque, getEmbarquesPorNumero, guardarSolicitud } from '../../api/embarques'
 import { getProductos, getUbicaciones } from '../../api/inventario'
 import { avisar } from '../../utils/avisoCarga'
+import { kilosSueltos } from '../../utils/stock'
 
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 // En la Solicitud un lote se elige UNA sola vez: un mismo nombre de lote puede haber ingresado
@@ -1011,6 +1012,11 @@ export default function Solicitud() {
                                               )}
                                               {tieneIncompleta && (
                                                 <span className="ml-1 font-semibold text-amber-600">(caja incompleta)</span>
+                                              )}
+                                              {!tieneIncompleta && kilosSueltos(g.cantidadKilos, pesoCaja) > 0 && (
+                                                <span className="ml-1 font-semibold text-amber-600">
+                                                  (caja abierta: {n3(kilosSueltos(g.cantidadKilos, pesoCaja))} kg)
+                                                </span>
                                               )}
                                             </span>
                                           </label>

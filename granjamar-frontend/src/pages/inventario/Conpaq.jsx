@@ -9,6 +9,7 @@ import usePaginacion from '../../hooks/usePaginacion'
 import { getUbicaciones, getProductos, ajustarInventario } from '../../api/inventario'
 import { getEmpresas } from '../../api/destinos'
 import { avisar } from '../../utils/avisoCarga'
+import { kilosSueltos } from '../../utils/stock'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 
@@ -24,6 +25,7 @@ export default function Conpaq() {
   const [cargando, setCargando] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [lotesDe, setLotesDe] = useState(null)
+  const [soloAbiertas, setSoloAbiertas] = useState(false)
   const [sinInterna, setSinInterna] = useState(false)
   const [ajuste, setAjuste] = useState(null) // { lote, kilos, motivo } del lote que se está ajustando
   const [guardandoAjuste, setGuardandoAjuste] = useState(false)
@@ -100,11 +102,15 @@ export default function Conpaq() {
         lote: d.lote,
         bodega: [d.empresa, d.direccion].filter(Boolean).join(' · '),
         cantidadKilos: Number(d.cantidadKilos || 0),
+        // Kilos que no completan una caja: esa caja ya está abierta.
+        sueltos: kilosSueltos(d.cantidadKilos, p.pesoCaja),
         tipoDocumento: d.tipoDocumento,
         numeroDocumento: d.numeroDocumento,
       }
       if (previo) {
         previo.totalKilos += lote.cantidadKilos
+        previo.sueltos += lote.sueltos
+        previo.cajasAbiertas += lote.sueltos > 0 ? 1 : 0
         previo.lotes.push(lote)
       } else {
         mapa.set(d.codigoProducto, {
@@ -114,14 +120,17 @@ export default function Conpaq() {
           pesoCaja: p.pesoCaja,
           precioKilo: p.precioKilo,
           totalKilos: lote.cantidadKilos,
+          sueltos: lote.sueltos,
+          cajasAbiertas: lote.sueltos > 0 ? 1 : 0,
           lotes: [lote],
         })
       }
     }
     // El catálogo completo de productos (tengan o no existencia) ya lo muestra Kardex — Conpaq
     // es inventario real, así que un producto sin kilos en ningún lote no aparece aquí.
-    return [...mapa.values()]
-  }, [filtrados, productos])
+    const lista = [...mapa.values()]
+    return soloAbiertas ? lista.filter((x) => x.cajasAbiertas > 0) : lista
+  }, [filtrados, productos, soloAbiertas])
 
   const { datosPaginados, pagina, setPagina, total, porPagina } = usePaginacion(porProducto, 20)
   const totalKg = filtrados.reduce((s, d) => s + Number(d.cantidadKilos || 0), 0)
@@ -141,6 +150,17 @@ export default function Conpaq() {
             placeholder="Ingresa código, descripción o lote"
             className="w-80 max-w-full"
           />
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={soloAbiertas}
+              onChange={(e) => {
+                setSoloAbiertas(e.target.checked)
+                setPagina(1)
+              }}
+            />
+            Solo productos con caja abierta
+          </label>
           <span className="text-sm font-semibold text-teal">Existencia total: {kg(totalKg)} kg</span>
         </div>
 
@@ -169,7 +189,14 @@ export default function Conpaq() {
                       <td>{item.talla}</td>
                       <td className="text-right">{item.pesoCaja != null ? kg(item.pesoCaja) : '—'}</td>
                       <td className="text-right">{money(item.precioKilo)}</td>
-                      <td className="text-right font-semibold">{kg(item.totalKilos)}</td>
+                      <td className="text-right font-semibold">
+                        {kg(item.totalKilos)}
+                        {item.cajasAbiertas > 0 && (
+                          <div className="mt-1 text-xs font-semibold text-amber-700">
+                            {item.cajasAbiertas === 1 ? 'Caja abierta' : `${item.cajasAbiertas} cajas abiertas`}: {kg(item.sueltos)} kg
+                          </div>
+                        )}
+                      </td>
                       <td className="text-right">
                         <button className="gm-pill" onClick={() => setLotesDe(item)}>
                           Ver lotes
@@ -214,7 +241,12 @@ export default function Conpaq() {
                 <tr key={l.id}>
                   <td className="text-sm">{l.lote || '—'}</td>
                   <td className="text-sm">{l.bodega || '—'}</td>
-                  <td className="text-right text-sm font-semibold">{kg(l.cantidadKilos)}</td>
+                  <td className="text-right text-sm font-semibold">
+                    {kg(l.cantidadKilos)}
+                    {l.sueltos > 0 && (
+                      <div className="text-xs font-semibold text-amber-700">Caja abierta: {kg(l.sueltos)} kg</div>
+                    )}
+                  </td>
                   <td className="text-sm">
                     {l.numeroDocumento ? `${l.tipoDocumento ? `${l.tipoDocumento} — ` : ''}${l.numeroDocumento}` : '—'}
                   </td>

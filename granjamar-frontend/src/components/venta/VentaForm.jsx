@@ -21,7 +21,7 @@ import {
   crearEstadoRecoleccion,
   idCatalogo,
 } from '../../api/ventas'
-import { seleccionarUbicaciones } from '../../utils/stock'
+import { seleccionarUbicaciones, cajasAbiertas } from '../../utils/stock'
 import { idsEmpresaPermitidos, filtrarPorEmpresasPermitidas } from '../../utils/ubicaciones'
 import { fechaHoy } from '../../utils/fecha'
 import { desgloseCambio, sugerenciasEfectivo } from '../../utils/dinero'
@@ -31,7 +31,7 @@ const money = (n) => `$${Number(n || 0).toLocaleString('es-MX', { minimumFractio
 const n3 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 
 const FILA_VACIA = {
-  codigo: '', descripcion: '', kilosCaja: 0, precioKilo: 0, desc: 0,
+  codigo: '', descripcion: '', kilosCaja: 0, pesoVariado: false, porKilo: false, kilosSueltos: '', precioKilo: 0, desc: 0,
   cantCajas: 1, cantKilos: 0, precioCaja: 0, importe: 0, stockDisponible: 0,
 }
 
@@ -144,13 +144,17 @@ export default function VentaForm({ modo, ventaEditar = null }) {
   const stockDe = (codigo) =>
     ubicaciones.filter((u) => u.codigoProducto === codigo).reduce((s, u) => s + Number(u.cantidadKilos || 0), 0)
 
+  // "Por kilo": se venden kilos sueltos (menos de una caja o una cantidad que no es de cajas completas) en vez de cajas.
   const recalcular = (art) => {
     const factor = 1 - Number(art.desc || 0) / 100
+    const cantKilos = art.porKilo
+      ? Number(art.kilosSueltos || 0)
+      : Number(art.cantCajas || 0) * Number(art.kilosCaja || 0)
     return {
       ...art,
-      cantKilos: Number(art.cantCajas || 0) * Number(art.kilosCaja || 0),
+      cantKilos,
       precioCaja: Number(art.kilosCaja || 0) * Number(art.precioKilo || 0) * factor,
-      importe: Number(art.cantCajas || 0) * Number(art.kilosCaja || 0) * Number(art.precioKilo || 0) * factor,
+      importe: cantKilos * Number(art.precioKilo || 0) * factor,
     }
   }
 
@@ -166,6 +170,10 @@ export default function VentaForm({ modo, ventaEditar = null }) {
       codigo: p.codigo,
       descripcion: p.especie || p.codigo,
       kilosCaja: Number(p.pesoCaja) || 0,
+      porKilo: false,
+      kilosSueltos: '',
+      // Sin peso por caja en el kardex ("Peso variado"): los kilos de cada caja se capturan al vender.
+      pesoVariado: !(Number(p.pesoCaja) > 0),
       precioKilo: Number(p.precioKilo) || 0,
       desc: 0,
       cantCajas: 1,
@@ -196,11 +204,16 @@ export default function VentaForm({ modo, ventaEditar = null }) {
       const cajas = pesoCaja > 0 ? g.kilos / pesoCaja : 0
       // Si los kilos no son cajas completas (p. ej. cambió el peso por caja), se toma todo como una sola caja.
       const cajasCompletas = pesoCaja > 0 && Math.abs(cajas - Math.round(cajas)) < 0.0005
+      // Kilos que no son cajas completas (se vendió de una caja abierta): el renglón queda "por kilo".
+      const porKilo = pesoCaja > 0 && !cajasCompletas
       return recalcular({
         ...FILA_VACIA,
         codigo: g.codigo,
         descripcion: p?.especie || g.codigo,
-        kilosCaja: cajasCompletas ? pesoCaja : g.kilos,
+        kilosCaja: cajasCompletas || porKilo ? pesoCaja : g.kilos,
+        porKilo,
+        kilosSueltos: porKilo ? g.kilos : '',
+        pesoVariado: !(pesoCaja > 0),
         precioKilo: g.precioKilo != null ? Number(g.precioKilo) : Number(p?.precioKilo) || 0,
         cantCajas: cajasCompletas ? Math.round(cajas) : 1,
         stockDisponible: stockDe(g.codigo),
@@ -241,7 +254,7 @@ export default function VentaForm({ modo, ventaEditar = null }) {
   const total = Math.round((subtotal - montoDescuento) * 100) / 100
   // Mayoreo: el descuento va por producto. Se juntan los renglones con descuento para confirmarlos antes de cerrar.
   const lineasConDescuento = esMayoreo ? articulos.filter((a) => a.codigo && Number(a.desc) > 0) : []
-  const sinDescuentoDe = (a) => Number(a.cantCajas || 0) * Number(a.kilosCaja || 0) * Number(a.precioKilo || 0)
+  const sinDescuentoDe = (a) => Number(a.cantKilos || 0) * Number(a.precioKilo || 0)
   const montoDescLineas = lineasConDescuento.reduce((acc, a) => acc + (sinDescuentoDe(a) - Number(a.importe || 0)), 0)
   const hayDescuento = esMayoreo ? lineasConDescuento.length > 0 : descuentoPct > 0
   const cambio = Number(efectivoRecibido || 0) - total
@@ -265,7 +278,12 @@ export default function VentaForm({ modo, ventaEditar = null }) {
     if (conProducto.length === 0) return 'Agrega al menos un artículo con producto'
     if (esMayoreo && !idCliente) return 'Selecciona un cliente de la lista'
     for (const a of conProducto) {
-      if (Number(a.cantCajas) <= 0) return `Cantidad de cajas inválida en ${a.codigo}`
+      if (a.porKilo) {
+        if (!(Number(a.kilosSueltos) > 0)) return `Escribe los kilos de ${a.codigo}`
+      } else {
+        if (Number(a.cantCajas) <= 0) return `Cantidad de cajas inválida en ${a.codigo}`
+        if (!(Number(a.kilosCaja) > 0)) return `Escribe los kilos por caja de ${a.codigo}`
+      }
       if (a.cantKilos > a.stockDisponible)
         return `Stock insuficiente para ${a.codigo} (disponible ${n3(a.stockDisponible)} kg)`
     }
@@ -291,7 +309,7 @@ export default function VentaForm({ modo, ventaEditar = null }) {
       const detalles = []
       for (const art of articulos.filter((a) => a.codigo && a.cantKilos > 0)) {
         const ubs = ubicaciones.filter((u) => u.codigoProducto === art.codigo)
-        const sel = seleccionarUbicaciones(ubs, art.cantKilos)
+        const sel = seleccionarUbicaciones(ubs, art.cantKilos, art.pesoVariado ? 0 : art.kilosCaja)
         if (!sel) {
           setGuardando(false)
           return setError(`Stock insuficiente para ${art.codigo}`)
@@ -450,17 +468,36 @@ export default function VentaForm({ modo, ventaEditar = null }) {
             <tbody>
               {articulos.map((art, i) => {
                 const excede = art.codigo && art.cantKilos > art.stockDisponible
+                const abiertas =
+                  art.codigo && !art.pesoVariado
+                    ? cajasAbiertas(ubicaciones.filter((u) => u.codigoProducto === art.codigo), art.kilosCaja)
+                    : []
+                const kilosAbiertos = abiertas.reduce((acc, u) => acc + u.sueltos, 0)
                 return (
                   <tr key={i} className={excede ? 'bg-red-50' : ''}>
                     <td>
-                      <input
-                        type="number"
-                        min="1"
-                        max={art.codigo && art.kilosCaja > 0 ? Math.floor(art.stockDisponible / art.kilosCaja) : undefined}
-                        className="w-20 rounded border border-gray-300 px-2 py-1 text-center"
-                        value={art.cantCajas}
-                        onChange={(e) => setFila(i, { cantCajas: e.target.value })}
-                      />
+                      {art.porKilo ? (
+                        <span className="block w-20 text-center text-sm text-gray-500">—</span>
+                      ) : (
+                        <input
+                          type="number"
+                          min="1"
+                          max={art.codigo && art.kilosCaja > 0 ? Math.floor(art.stockDisponible / art.kilosCaja) : undefined}
+                          className="w-20 rounded border border-gray-300 px-2 py-1 text-center"
+                          value={art.cantCajas}
+                          onChange={(e) => setFila(i, { cantCajas: e.target.value })}
+                        />
+                      )}
+                      {art.codigo && !art.pesoVariado && (
+                        <label className="mt-1 flex items-center gap-1 text-xs text-gray-600">
+                          <input
+                            type="checkbox"
+                            checked={art.porKilo}
+                            onChange={(e) => setFila(i, { porKilo: e.target.checked, kilosSueltos: '' })}
+                          />
+                          Por kilo
+                        </label>
+                      )}
                     </td>
                     <td>
                       <select
@@ -481,10 +518,31 @@ export default function VentaForm({ modo, ventaEditar = null }) {
                       {art.codigo && (
                         <div className="mt-1">
                           <BadgeStock kilos={art.stockDisponible} insuficiente={excede} />
+                          {abiertas.length > 0 && (
+                            <div className="mt-1 text-xs font-semibold text-amber-700">
+                              Caja abierta: {n3(kilosAbiertos)} kg sueltos
+                              {abiertas.length > 1 ? ` (${abiertas.length} cajas)` : ''}. Se venden primero.
+                            </div>
+                          )}
                         </div>
                       )}
                     </td>
-                    <td className="text-right text-sm">{n3(art.kilosCaja)}</td>
+                    <td className="text-right text-sm">
+                      {art.pesoVariado ? (
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          aria-label={`Kilos por caja de ${art.codigo}`}
+                          placeholder="kg"
+                          className="w-24 rounded border border-gray-300 px-2 py-1 text-right"
+                          value={art.kilosCaja || ''}
+                          onChange={(e) => setFila(i, { kilosCaja: e.target.value })}
+                        />
+                      ) : (
+                        n3(art.kilosCaja)
+                      )}
+                    </td>
                     <td className="text-right text-sm">{money(art.precioKilo)}</td>
                     {esMayoreo && (
                       <td className="text-right">
@@ -499,7 +557,22 @@ export default function VentaForm({ modo, ventaEditar = null }) {
                       </td>
                     )}
                     <td className="text-right text-sm">{money(art.precioCaja)}</td>
-                    <td className="text-right text-sm font-medium">{n3(art.cantKilos)}</td>
+                    <td className="text-right text-sm font-medium">
+                      {art.porKilo ? (
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          aria-label={`Kilos de ${art.codigo}`}
+                          placeholder="kg"
+                          className="w-24 rounded border border-gray-300 px-2 py-1 text-right"
+                          value={art.kilosSueltos}
+                          onChange={(e) => setFila(i, { kilosSueltos: e.target.value })}
+                        />
+                      ) : (
+                        n3(art.cantKilos)
+                      )}
+                    </td>
                     <td className="text-right font-semibold text-marca">{money(art.importe)}</td>
                     <td className="text-right">
                       <button
